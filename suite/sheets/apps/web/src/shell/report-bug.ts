@@ -1,0 +1,60 @@
+/**
+ * Copyright 2026 Casual Office
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+/**
+ * Open the GitHub bug template prefilled with environment info the user
+ * shouldn't have to dig up (browser, viewport, URL). The structured form
+ * lives at `.github/ISSUE_TEMPLATE/bug.yml`; GitHub maps query params to
+ * matching form fields by `id`.
+ */
+import { openExternal } from './openExternal';
+
+export function openBugReport(): void {
+  const url = new URL('https://github.com/CasualOffice/sheets/issues/new');
+  url.searchParams.set('template', 'bug.yml');
+  url.searchParams.set('labels', 'bug');
+  url.searchParams.set('url', location.href);
+  url.searchParams.set('env', describeEnv());
+  openExternal(url.toString());
+}
+
+function describeEnv(): string {
+  const ua = navigator.userAgent || '';
+  const browser = pickBrowser(ua);
+  const platform =
+    // navigator.userAgentData is a richer source where supported (Chromium);
+    // fall back to navigator.platform on Safari / older browsers.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (navigator as any).userAgentData?.platform ?? navigator.platform ?? 'unknown';
+  const viewport = `${window.innerWidth}×${window.innerHeight}`;
+  return `${browser} / ${platform} / viewport ${viewport}`;
+}
+
+function pickBrowser(ua: string): string {
+  // Order matters — Edge / Opera UA strings include "Chrome", so check them first.
+  const checks: Array<[RegExp, (m: RegExpMatchArray) => string]> = [
+    [/Edg\/(\d+)/, (m) => `Edge ${m[1]}`],
+    [/OPR\/(\d+)/, (m) => `Opera ${m[1]}`],
+    [/Firefox\/(\d+)/, (m) => `Firefox ${m[1]}`],
+    [/Chrome\/(\d+)/, (m) => `Chrome ${m[1]}`],
+    [/Version\/([\d.]+).*Safari/, (m) => `Safari ${m[1]}`],
+  ];
+  for (const [re, fmt] of checks) {
+    const m = ua.match(re);
+    if (m) return fmt(m);
+  }
+  return 'unknown browser';
+}

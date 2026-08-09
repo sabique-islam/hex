@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Casual Slides — PowerPoint-flavored web presentations · Open source</title>
+    <meta
+      name="description"
+      content="Open-source web presentation editor with .pptx round-trip, real-time co-editing, masters/layouts, animations, and a self-hosted Docker image. Looks and behaves like Microsoft PowerPoint. Apache-2.0."
+    />
+    <meta name="author" content="Sachin Sarwa" />
+    <meta name="theme-color" content="#0D9488" />
+    <meta name="color-scheme" content="light dark" />
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Casual Slides" />
+    <meta property="og:title" content="Casual Slides — PowerPoint-flavored web presentations" />
+    <meta
+      property="og:description"
+      content="Open .pptx in the browser, edit like the web, save back. Real-time co-editing. Self-host via Docker. Open source (Apache-2.0)."
+    />
+    <meta property="og:url" content="https://slide.schnsrw.live/" />
+    <meta property="og:image" content="https://slide.schnsrw.live/og.png" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Casual Slides — PowerPoint-flavored web presentations by Sachin Sarwa" />
+    <meta property="og:locale" content="en_US" />
+
+    <!-- Twitter / X card -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Casual Slides — PowerPoint-flavored web presentations" />
+    <meta
+      name="twitter:description"
+      content="Open .pptx in the browser, edit like the web, save back. Real-time co-editing. Self-host via Docker. Open source."
+    />
+    <meta name="twitter:image" content="https://slide.schnsrw.live/og.png" />
+    <meta name="twitter:image:alt" content="Casual Slides — PowerPoint-flavored web presentations" />
+
+    <meta
+      name="robots"
+      content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1"
+    />
+    <meta
+      name="keywords"
+      content="web presentation, PowerPoint for the web, pptx editor, open-source presentation, self-hosted presentation, real-time presentation, collaborative slides, Univer OSS, Yjs, Hocuspocus, Docker presentation, Apache-2.0, Casual Slides, Sachin Sarwa"
+    />
+
+    <link rel="canonical" href="https://slide.schnsrw.live/" />
+    <!-- Cache-bust the favicon hash on the 2026-06-01 brand refresh so
+         every browser re-fetches instead of serving the cached cyan
+         logo from before the teal swap. Bump the `?v=` param whenever
+         favicon.svg is redrawn. -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=2026-06-01" />
+    <link rel="apple-touch-icon" href="/favicon.svg?v=2026-06-01" />
+
+    <!--
+      JSON-LD: SoftwareApplication + Person + WebSite. Mirrors the
+      shape used by the sister sheet site so the LLM/Google indexers
+      see a coherent family.
+    -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "SoftwareApplication",
+            "@id": "https://slide.schnsrw.live/#app",
+            "name": "Casual Slides",
+            "alternateName": "casual-slides",
+            "applicationCategory": "BusinessApplication",
+            "applicationSubCategory": "PresentationApplication",
+            "operatingSystem": "Web Browser",
+            "url": "https://slide.schnsrw.live/",
+            "codeRepository": "https://github.com/CasualOffice/slides",
+            "softwareVersion": "0.1.0",
+            "license": "https://www.apache.org/licenses/LICENSE-2.0",
+            "description": "Open-source, self-hostable web presentation editor that opens and saves native .pptx with real-time multi-user co-editing. Behaves like Microsoft PowerPoint — ribbon, slide-panel thumbnails, file-centric workflow. Built on Univer OSS (Apache-2.0) with a custom Office-style shell and bespoke pptx I/O. Sister product to Casual Sheets.",
+            "image": "https://slide.schnsrw.live/og.png",
+            "screenshot": "https://slide.schnsrw.live/og.png",
+            "offers": {
+              "@type": "Offer",
+              "price": "0",
+              "priceCurrency": "USD",
+              "availability": "https://schema.org/InStock"
+            },
+            "author": { "@id": "https://schnsrw.live/#person" },
+            "creator": { "@id": "https://schnsrw.live/#person" },
+            "publisher": { "@id": "https://schnsrw.live/#person" },
+            "featureList": [
+              "Open and save native .pptx files (planned)",
+              "Real-time multi-user co-editing via Yjs and Hocuspocus (planned)",
+              "PowerPoint-shaped slide model — pages, masters, layouts, notes",
+              "Page elements: text frames, shapes, images, tables, charts, lines, video (rolling)",
+              "Animations and transitions (planned)",
+              "Presenter mode with speaker view + notes + timer (planned)",
+              "Self-hostable Docker image — same self-host platform as Casual Sheets (planned)",
+              "Anonymous room URLs with optional password-protected co-edit (planned)"
+            ],
+            "softwareRequirements": "Modern desktop browser (Chrome, Firefox, Safari, Edge). Docker 20+ for self-hosting (planned).",
+            "isAccessibleForFree": true,
+            "keywords": "presentation, pptx editor, open source, real-time, co-editing, self-hosted, Docker, Univer OSS, Yjs"
+          },
+          {
+            "@type": "Person",
+            "@id": "https://schnsrw.live/#person",
+            "name": "Sachin Sarwa",
+            "url": "https://schnsrw.live/",
+            "sameAs": [
+              "https://github.com/CasualOffice",
+              "https://hub.docker.com/u/casualoffice"
+            ]
+          },
+          {
+            "@type": "WebSite",
+            "@id": "https://slide.schnsrw.live/#website",
+            "url": "https://slide.schnsrw.live/",
+            "name": "Casual Slides",
+            "publisher": { "@id": "https://schnsrw.live/#person" }
+          }
+        ]
+      }
+    </script>
+
+    <!-- Inter for UI. Icons are inline SVGs (see src/shell/icons.tsx),
+         not a webfont — avoids the "folder_open" literal flash if the
+         icon font is slow/blocked. preconnect still helps Inter +
+         deck-fonts below. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+    />
+
+    <!--
+      DECK-FONT PACK — load common PowerPoint deck fonts via Google
+      Fonts (and their metric-compatible open-source replacements for
+      proprietary Microsoft families). Without this, canvas ctx.font
+      requests like "Calibri" silently fall back to Arial on
+      non-Windows machines, collapsing every authored typeface to a
+      single visual font. Each family loads in 400 + 700 weight; italic
+      variants are derived synthetically by the renderer.
+    -->
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Carlito:ital,wght@0,400;0,700;1,400;1,700&family=Caladea:ital,wght@0,400;0,700;1,400;1,700&family=Open+Sans:ital,wght@0,400;0,700;1,400;1,700&family=Lato:ital,wght@0,400;0,700;1,400;1,700&family=Roboto:ital,wght@0,400;0,700;1,400;1,700&family=Source+Sans+3:ital,wght@0,400;0,700;1,400;1,700&family=Noto+Sans:ital,wght@0,400;0,700;1,400;1,700&family=Noto+Serif:ital,wght@0,400;0,700;1,400;1,700&family=Montserrat:ital,wght@0,400;0,700;1,400;1,700&family=Merriweather:ital,wght@0,400;0,700;1,400;1,700&family=Playfair+Display:ital,wght@0,400;0,700;1,400;1,700&family=PT+Sans:ital,wght@0,400;0,700;1,400;1,700&family=Roboto+Slab:wght@400;700&family=Roboto+Mono:ital,wght@0,400;0,700;1,400;1,700&display=swap"
+    />
+    <!-- Second pack — modern deck fonts that didn't fit in the line
+         above and CJK/Indic fonts that PowerPoint exports frequently
+         hit. Same display=swap so a missing/slow load doesn't block
+         render — falls back to system + Arial. -->
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Raleway:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400;1,700&family=Poppins:ital,wght@0,300;0,400;0,600;0,700;1,400;1,700&family=Oswald:wght@300;400;500;600;700&family=Bebas+Neue&family=Quicksand:wght@300;400;500;600;700&family=Nunito:ital,wght@0,400;0,700;1,400;1,700&family=Nunito+Sans:ital,wght@0,400;0,700;1,400;1,700&family=Work+Sans:ital,wght@0,400;0,700;1,400;1,700&family=Rubik:ital,wght@0,400;0,700;1,400;1,700&family=Mulish:ital,wght@0,400;0,700;1,400;1,700&family=Inconsolata:wght@400;700&family=Crimson+Text:ital,wght@0,400;0,700;1,400;1,700&family=Libre+Baskerville:ital,wght@0,400;0,700;1,400;1,700&family=Cormorant+Garamond:ital,wght@0,400;0,700;1,400;1,700&family=DM+Sans:ital,wght@0,400;0,700;1,400;1,700&family=DM+Serif+Display:ital,wght@0,400;1,400&family=EB+Garamond:ital,wght@0,400;0,700;1,400;1,700&family=Fira+Sans:ital,wght@0,400;0,700;1,400;1,700&family=Manrope:wght@400;500;600;700&family=Bitter:ital,wght@0,400;0,700;1,400;1,700&family=Karla:ital,wght@0,400;0,700;1,400;1,700&family=Cabin:ital,wght@0,400;0,700;1,400;1,700&family=Josefin+Sans:ital,wght@0,400;0,700;1,400;1,700&family=Archivo:ital,wght@0,400;0,700;1,400;1,700&family=Anton&family=Heebo:wght@400;700&family=Hind:wght@400;700&family=Barlow:ital,wght@0,400;0,700;1,400;1,700&family=PT+Serif:ital,wght@0,400;0,700;1,400;1,700&display=swap"
+    />
+
+    <!--
+      MS-proprietary deck-font aliasing happens at the *model* level in
+      pptx-import (FONT_SUBSTITUTION_MAP): Calibri → Carlito,
+      Cambria → Caladea, etc. We load the open-source replacements via
+      the Google Fonts <link> above; the parser rewrites the run's
+      `ff` so canvas resolves the font correctly without needing
+      fragile @font-face URL aliasing (Google's gstatic version paths
+      rotate and break direct hardcoded URLs).
+    -->
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

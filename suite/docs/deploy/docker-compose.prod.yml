@@ -1,0 +1,89 @@
+# Production topology: one `app` container — the Node collab server
+# (Hocuspocus CRDT on /yjs + REST: /api/rooms, /auth, /files, /wopi)
+# serving the bundled SPA from the same origin — behind a Caddy reverse
+# proxy for TLS. Nothing host-specific is baked into the SPA build (it
+# reaches the WS broker at same-origin /yjs, see the App.tsx default).
+#
+#   docker compose -f docker-compose.prod.yml up -d --build
+#
+# Set COLLAB_SITE_ADDRESS=doc.example.com for automatic HTTPS.
+# Run from the repo root (contexts are relative to it).
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: casual-editor:local
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      PORT: "8080"
+      HOST: "0.0.0.0"
+      # Production mode: the server refuses to boot with in-memory Y.Doc
+      # storage (rooms lost on restart) — so REDIS_URL below is mandatory here.
+      NODE_ENV: "production"
+      # We terminate TLS at Caddy; trust its forwarded IP so per-IP rate
+      # limiting keys on the real client, not the proxy container.
+      TRUST_PROXY: "true"
+      CASUAL_FILE_EXT: ".docx"
+      # File host (workbook/document bytes) — separate from Y.Doc room storage.
+      CASUAL_STORAGE: "local"
+      CASUAL_LOCAL_PATH: "/data"
+      # Y.Doc ROOM storage — this is what actually persists live rooms across a
+      # restart. Without it the server would (now) refuse to start in prod.
+      REDIS_URL: "redis://redis:6379"
+      CASUAL_REDIS_PREFIX: "casual-docs:room:"
+    volumes:
+      - ./data/collab:/data
+    expose:
+      - "8080"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://localhost:8080/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    # Persist the RDB so a redis restart doesn't drop rooms either.
+    command: ["redis-server", "--save", "60", "1", "--appendonly", "no"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  proxy:
+    image: caddy:2
+    depends_on:
+      - app
+    environment:
+      COLLAB_SITE_ADDRESS: "${COLLAB_SITE_ADDRESS:-:8080}"
+    ports:
+      - "8080:8080"
+      # Uncomment for a real domain with automatic HTTPS:
+      # - "80:80"
+      # - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    restart: unless-stopped
+
+volumes:
+  caddy-data:
+  caddy-config:
+  redis-data:

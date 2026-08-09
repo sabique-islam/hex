@@ -1,0 +1,26 @@
+{
+  "name": "casual-pdf",
+  "private": true,
+  "packageManager": "pnpm@10.33.4",
+  "scripts": {
+    "dev": "pnpm --filter @casual-pdf/web dev",
+    "build": "pnpm -r build",
+    "build:web": "pnpm --filter @casual-pdf/web build",
+    "typecheck": "pnpm -r typecheck",
+    "mcp": "node --experimental-transform-types --no-warnings packages/pdf-sdk/src/mcp/server.ts",
+    "test:unit": "node --experimental-transform-types --test tools/render-parity/*.test.ts"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.1",
+    "pdf-lib": "^1.17.1",
+    "typescript": "^5.6.3"
+  },
+  "pnpm": {
+    "overrides": {
+      "@schnsrw/design-system": "link:vendor/design-system"
+    }
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0"
+  }
+}

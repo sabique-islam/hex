@@ -1,0 +1,220 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # Active now: lint the planning docs.
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Markdown lint
+        run: npx --yes markdownlint-cli2 "**/*.md" "#node_modules" "#vendor"
+      - name: Check local doc links
+        run: bash scripts/check-links.sh
+
+  # Detect whether app code has landed yet, so web/rust jobs activate automatically.
+  detect:
+    runs-on: ubuntu-latest
+    outputs:
+      has_web: ${{ steps.c.outputs.has_web }}
+      has_rust: ${{ steps.c.outputs.has_rust }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: c
+        run: |
+          if [ -f apps/web/package.json ]; then echo "has_web=true" >> "$GITHUB_OUTPUT"; else echo "has_web=false" >> "$GITHUB_OUTPUT"; fi
+          if [ -f crates/casual-pdf-core/Cargo.toml ]; then echo "has_rust=true" >> "$GITHUB_OUTPUT"; else echo "has_rust=false" >> "$GITHUB_OUTPUT"; fi
+
+  # Activates automatically once apps/web/ exists (Phase 0+).
+  web:
+    needs: detect
+    if: needs.detect.outputs.has_web == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive # vendor/design-system (link: override) must be present for install
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # In pnpm, run flags must precede the script name — anything after it is
+      # forwarded to the script. `--if-present` skips scripts not yet defined.
+      - run: pnpm run --if-present lint
+      - run: pnpm run --if-present typecheck
+      - run: pnpm run --if-present build
+      - run: pnpm run --if-present test
+
+  # Activates automatically once crates/casual-pdf-core/ exists (Phase 0+).
+  rust:
+    needs: detect
+    if: needs.detect.outputs.has_rust == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: crates/casual-pdf-core
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+          targets: wasm32-unknown-unknown
+      - run: cargo fmt --all --check
+      - run: cargo clippy --all-targets --all-features -- -D warnings
+      - run: cargo test --all-features
+      - run: cargo build --target wasm32-unknown-unknown
+
+  # UX-F1 render parity: a page rendered by web PDFium-WASM (EmbedPDF) must match
+  # the same page rendered by native pdfium-render. Activates once both the web
+  # app and the crate exist.
+  render-parity:
+    needs: detect
+    if: needs.detect.outputs.has_web == 'true' && needs.detect.outputs.has_rust == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive # vendor/design-system needed to build apps/web
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+      - run: pnpm install --frozen-lockfile
+      - name: Fetch PDFium (native engine)
+        run: |
+          curl -sSL -o /tmp/pdfium.tgz \
+            https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-linux-x64.tgz
+          mkdir -p /tmp/pdfium && tar xzf /tmp/pdfium.tgz -C /tmp/pdfium
+          cp /tmp/pdfium/lib/libpdfium.so tools/render-parity/libpdfium.so
+      - name: Install harness deps + Chromium
+        working-directory: tools/render-parity
+        run: |
+          npm install
+          # Install the Chromium build that THIS playwright-core expects — the
+          # installer version must match the runtime version exactly.
+          PW_VER=$(node -p "require('playwright-core/package.json').version")
+          echo "playwright-core $PW_VER"
+          npx --yes "playwright@$PW_VER" install chromium
+      - name: Run render-parity (UX-F1)
+        working-directory: tools/render-parity
+        run: ./run.sh
+      - name: Upload renders
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: render-parity
+          path: tools/render-parity/out/
+
+  # Fast, browser-less gate: the AI/PDF-ops unit suite (DocOps bridge, PII regex +
+  # checksums, hybrid-RAG fusion, form-fill, source-span highlighting, MCP registry
+  # + file handlers) AND the MCP server's PRODUCTION dist bin driven over a real
+  # stdio handshake with plain `node` — exactly how the desktop release spawns it.
+  unit-tests:
+    needs: detect
+    if: needs.detect.outputs.has_web == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive # vendor/design-system (link: override) needed for install
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Unit suite (ai + mcp)
+        run: pnpm test:unit
+      - name: MCP production bin over stdio (built, plain node)
+        run: |
+          pnpm -C packages/pdf-sdk build:mcp
+          CASUAL_MCP_BIN=packages/pdf-sdk/dist/mcp/server.mjs node tools/render-parity/verify-mcp-stdio.mjs
+      - name: Region-only redaction (buildCoveredPdf keeps text; geometry preserved)
+        run: node --experimental-transform-types tools/render-parity/verify-redact-cover.mjs
+
+  # Editor feature regression suite — the verify-*.mjs Playwright drivers
+  # (annotate/redact/autosave, text editing + matched/Google fonts, real signing +
+  # OpenSSL external validation, viewer-mount persistence, Unicode/CJK editing).
+  # Gated on has_web only (no native/rust needed). The UNICODE and GOOGLE-FONT
+  # drivers are offline: each route-intercepts its jsdelivr font request and serves
+  # a tiny vendored subset (CJK / Latin), so everything here is deterministic +
+  # needs no network.
+  editor-tests:
+    needs: detect
+    if: needs.detect.outputs.has_web == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive # vendor/design-system needed to build apps/web
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Build web app
+        run: pnpm -C apps/web build
+      - name: Install harness deps + Chromium
+        working-directory: tools/render-parity
+        run: |
+          npm install
+          PW_VER=$(node -p "require('playwright-core/package.json').version")
+          npx --yes "playwright@$PW_VER" install chromium
+      - name: Editor regression suite (verify-*)
+        working-directory: tools/render-parity
+        run: |
+          cp fixtures/sample.pdf ../../apps/web/dist/sample.pdf
+          # PyMuPDF decodes CID→unicode for the char-level redaction test (the
+          # naive extractor can't read embedded/CID fonts).
+          python3 -m pip install --quiet --break-system-packages pymupdf || python3 -m pip install --quiet pymupdf
+          fail=0
+          for t in \
+            verify-drive \
+            verify-collab-2client \
+            verify-collab-share \
+            verify-collab-forms \
+            verify-collab-signing \
+            verify-redact-split \
+            verify-redact-xobject \
+            verify-textedit-overlay \
+            verify-textedit-optionc \
+            verify-textedit-persist \
+            verify-search-after-textedit \
+            verify-merge \
+            verify-textedit-unicode \
+            verify-textedit-googlefont \
+            verify-signature-details \
+            verify-signature-owncert \
+            verify-signature-openssl \
+            verify-ai-panel \
+            verify-ai-highlight \
+            verify-ai-redact \
+            verify-ai-summarize \
+            verify-comments-ui \
+            verify-restrict \
+            verify-redact-text; do
+            echo "::group::$t"
+            node "$t.mjs" || { echo "::error::$t failed"; fail=1; }
+            echo "::endgroup::"
+          done
+          exit $fail

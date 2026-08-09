@@ -1,0 +1,1846 @@
+diff --git a/lib/cjs/index.js b/lib/cjs/index.js
+index 64a0ae3d173be258f5a54c58f1c3e650e8bea827..1490791e402bf1ec3a819381d32b23ca91d1d060 100644
+--- a/lib/cjs/index.js
++++ b/lib/cjs/index.js
+@@ -45,6 +45,9 @@ let PageElementType = /* @__PURE__ */ function(PageElementType) {
+ 	PageElementType[PageElementType["SPREADSHEET"] = 3] = "SPREADSHEET";
+ 	PageElementType[PageElementType["DOCUMENT"] = 4] = "DOCUMENT";
+ 	PageElementType[PageElementType["SLIDE"] = 5] = "SLIDE";
++	PageElementType[PageElementType["TABLE"] = 6] = "TABLE";
++	PageElementType[PageElementType["CHART"] = 7] = "CHART";
++	PageElementType[PageElementType["VIDEO"] = 8] = "VIDEO";
+ 	return PageElementType;
+ }({});
+ let RelativeSlideLink = /* @__PURE__ */ function(RelativeSlideLink) {
+@@ -136,10 +139,15 @@ var SlideDataModel = class extends _univerjs_core.UnitModel {
+ 		this._unitId = (_this$_snapshot$id2 = this._snapshot.id) !== null && _this$_snapshot$id2 !== void 0 ? _this$_snapshot$id2 : (0, _univerjs_core.generateRandomId)(6);
+ 	}
+ 	getRev() {
+-		return 0;
++		var _this$_snapshot$rev;
++		return (_this$_snapshot$rev = this._snapshot.rev) !== null && _this$_snapshot$rev !== void 0 ? _this$_snapshot$rev : 1;
++	}
++	incrementRev() {
++		this._snapshot.rev = this.getRev() + 1;
++	}
++	setRev(rev) {
++		this._snapshot.rev = rev;
+ 	}
+-	incrementRev() {}
+-	setRev(_rev) {}
+ 	getSnapshot() {
+ 		return this._snapshot;
+ 	}
+@@ -639,7 +647,46 @@ var ImageAdaptor = class extends ObjectAdaptor {
+ 	convert(pageElement) {
+ 		const { id, zIndex, left = 0, top = 0, width, height, angle, scaleX, scaleY, skewX, skewY, flipX, flipY, title, description, image = {} } = pageElement;
+ 		const { imageProperties, placeholder, link } = image;
+-		return new _univerjs_engine_render.Image(id, {
++		// Casual Slides patch — honour cropProperties (parsed from
++		// `<a:srcRect>` in pptx-import E3). Univer stores crop as
++		// fractional offsets (0..1) of the *source* image: e.g.
++		// offsetLeft=0.25 means "the left 25 % of the source is
++		// cropped away; what's visible is the right 75 %". The
++		// element's width/height in `pageElement` is the *displayed*
++		// (post-crop) size, so the implied full source width is
++		// `width / (1 - offsetLeft - offsetRight)`.
++		//
++		// engine-render's `IImageProps.srcRect` (ISrcRect = { left,
++		// top, right, bottom }) takes *pixel* offsets that extend the
++		// source-image draw past the element's bounding box on each
++		// side, while the box itself clips — which effectively crops.
++		// So:
++		//   srcRect.left   = displayedW * offsetL / (1 - offsetL - offsetR)
++		//   srcRect.right  = displayedW * offsetR / (1 - offsetL - offsetR)
++		//   srcRect.top    = displayedH * offsetT / (1 - offsetT - offsetB)
++		//   srcRect.bottom = displayedH * offsetB / (1 - offsetT - offsetB)
++		// If L+R or T+B sum to >=1 we'd divide by zero / negative; in
++		// that case skip the crop so the image still renders (full
++		// frame) rather than disappearing.
++		const cropProps = imageProperties && imageProperties.cropProperties;
++		let srcRect;
++		if (cropProps) {
++			const ol = cropProps.offsetLeft || 0;
++			const or = cropProps.offsetRight || 0;
++			const ot = cropProps.offsetTop || 0;
++			const ob = cropProps.offsetBottom || 0;
++			const denomW = 1 - ol - or;
++			const denomH = 1 - ot - ob;
++			if (denomW > 0.001 && denomH > 0.001) {
++				srcRect = {
++					left: (width * ol) / denomW,
++					right: (width * or) / denomW,
++					top: (height * ot) / denomH,
++					bottom: (height * ob) / denomH
++				};
++			}
++		}
++		const imageConfig = {
+ 			url: (imageProperties === null || imageProperties === void 0 ? void 0 : imageProperties.contentUrl) || "",
+ 			top,
+ 			left,
+@@ -654,7 +701,76 @@ var ImageAdaptor = class extends ObjectAdaptor {
+ 			flipX,
+ 			flipY,
+ 			forceRender: true
+-		});
++		};
++		if (srcRect) imageConfig.srcRect = srcRect;
++		// Casual Slides patch — honour imageProperties.effectLst (E6).
++		// Mirrors ShapeAdaptor's shadow / glow handling: outerShdw maps
++		// to canvas shadow*; glow re-uses the shadow channel with zero
++		// offset + larger blur as a halo. The engine-render Image patch
++		// applies these in Image.render() before _draw — see
++		// `patches/@univerjs__engine-render@0.24.0.patch`.
++		// innerShdw / reflection / blur on images are also TODOs (same
++		// reasons as on the shape side — see ShapeAdaptor comments).
++		const imgEffectLst = imageProperties && imageProperties.effectLst;
++		const imgOuterShdw = imgEffectLst && imgEffectLst.outerShdw;
++		const imgGlow = imgEffectLst && imgEffectLst.glow;
++		const EMU_PER_PX_IMG = 9525;
++		if (imgOuterShdw) {
++			const distEmu = typeof imgOuterShdw.dist === "number" ? imgOuterShdw.dist : 0;
++			const distPx = distEmu / EMU_PER_PX_IMG;
++			const dirRaw = typeof imgOuterShdw.dir === "number" ? imgOuterShdw.dir : 0;
++			const angleRad = (dirRaw / 60000) * Math.PI / 180;
++			const blurEmu = typeof imgOuterShdw.blurRad === "number" ? imgOuterShdw.blurRad : 0;
++			const blurPx = blurEmu / EMU_PER_PX_IMG / 2;
++			imageConfig.shadowEnabled = true;
++			imageConfig.shadowColor = (0, _univerjs_core.getColorStyle)(imgOuterShdw.color) || "rgba(0,0,0,1)";
++			imageConfig.shadowOffsetX = distPx * Math.cos(angleRad);
++			imageConfig.shadowOffsetY = distPx * Math.sin(angleRad);
++			imageConfig.shadowBlur = blurPx;
++			imageConfig.shadowOpacity = 0.4;
++		} else if (imgGlow) {
++			const radEmu = typeof imgGlow.rad === "number" ? imgGlow.rad : 0;
++			const radPx = radEmu / EMU_PER_PX_IMG * 1.5;
++			imageConfig.shadowEnabled = true;
++			imageConfig.shadowColor = (0, _univerjs_core.getColorStyle)(imgGlow.color) || "rgba(255,255,200,1)";
++			imageConfig.shadowOffsetX = 0;
++			imageConfig.shadowOffsetY = 0;
++			imageConfig.shadowBlur = radPx;
++			imageConfig.shadowOpacity = 0.6;
++		}
++		// Casual Slides patch — honour imageProperties.brightness /
++		// contrast / transparency (E5 + E4 unified path). The parser
++		// populates these as fractions (transparency is already 0..1
++		// fraction-removed per E4 wave 7h; brightness / contrast are
++		// upcoming sibling-agent work). Emit a CSS filter string via
++		// the engine-render Image `filter` prop (added by the
++		// engine-render patch). The Canvas filter semantics:
++		//   brightness(1)  = unchanged; 0 = black; 2 = double-bright
++		//   contrast(1)    = unchanged; 0 = grey; 2 = double-contrast
++		// PowerPoint stores brightness / contrast as signed -1..1
++		// offsets from neutral, so the parser is expected to land
++		// neutral=1 when both are zero. Defensive: skip filter when all
++		// three are at defaults so we don't pay the canvas-filter cost
++		// per redraw on every image. Engine-render's Image already has
++		// `opacity` for transparency; we keep that path too so legacy
++		// transparency-only images still render via globalAlpha (no
++		// canvas filter overhead) — the filter route is reserved for
++		// the brightness / contrast combo case.
++		const brightness = imageProperties && typeof imageProperties.brightness === "number" ? imageProperties.brightness : undefined;
++		const contrast = imageProperties && typeof imageProperties.contrast === "number" ? imageProperties.contrast : undefined;
++		const transparency = imageProperties && typeof imageProperties.transparency === "number" ? imageProperties.transparency : undefined;
++		const hasBrightness = brightness !== undefined && brightness !== 1;
++		const hasContrast = contrast !== undefined && contrast !== 1;
++		if (hasBrightness || hasContrast) {
++			const parts = [];
++			if (hasBrightness) parts.push("brightness(" + brightness + ")");
++			if (hasContrast) parts.push("contrast(" + contrast + ")");
++			imageConfig.filter = parts.join(" ");
++		}
++		if (transparency !== undefined && transparency > 0 && transparency <= 1) {
++			imageConfig.opacity = 1 - transparency;
++		}
++		return new _univerjs_engine_render.Image(id, imageConfig);
+ 	}
+ };
+ var ImageAdaptorFactory = class {
+@@ -667,6 +783,245 @@ var ImageAdaptorFactory = class {
+ };
+ CanvasObjectProviderRegistry.add(new ImageAdaptorFactory());
+ 
++// Casual Slides patch — TABLE adaptor (PageElementType.TABLE = 6).
++// pptx-import G1-G4 parses <a:tbl> into pageElement.table = { rows:
++// [{ height, cells: [{ text, richText, fillRgb, outlineRgb,
++// outlineWeight, colSpan, rowSpan, hMerge, vMerge }] }],
++// columnWidths }. Earlier this adaptor drew just a bounding rect.
++// Now we render each cell as its own Rect (fill + border) plus a
++// RichText overlay for the text content, wrapped in an engine-render
++// Group so the table presents as one transformer-attachable object.
++//
++// Layout: rows + columns sized from the parser-supplied
++// `columnWidths` and per-row `height`. When the parser omits widths
++// or heights (e.g. autosized tables), we fall back to even
++// distribution of the table's outer width / height across the
++// declared columns / rows.
++//
++// Merges: cells flagged with `hMerge` or `vMerge` are skip-rendered
++// (their visual area is covered by the leading cell's `colSpan` /
++// `rowSpan`). The leading cell's drawn width / height grows to span
++// the merged columns / rows. We don't subtract borders on merged
++// boundaries — close enough for first-pass visual fidelity.
++//
++// Constructor takes LocaleService so we can build RichText overlays
++// (RichText's ctor wants `_localeService` for font fallback). Same
++// injection pattern as RichTextAdaptor.
++let TableAdaptor = class TableAdaptor extends ObjectAdaptor {
++	constructor(_localeService) {
++		super();
++		this._localeService = _localeService;
++		_defineProperty(this, "zIndex", 2);
++		_defineProperty(this, "viewKey", 6);
++	}
++	check(type) {
++		if (type !== this.viewKey) return;
++		return this;
++	}
++	convert(pageElement) {
++		const { id, zIndex, left = 0, top = 0, width, height, angle, scaleX, scaleY, skewX, skewY, flipX, flipY, table } = pageElement;
++		if (!table || !table.rows || table.rows.length === 0) {
++			return new _univerjs_engine_render.Rect(id, {
++				fill: "rgba(245, 247, 250, 1)",
++				stroke: "rgba(100, 116, 139, 1)",
++				strokeWidth: 1,
++				top, left, width, height, zIndex,
++				angle, scaleX, scaleY, skewX, skewY, flipX, flipY,
++				forceRender: true
++			});
++		}
++		const declaredCols = (table.columnWidths || []).length;
++		const maxCellsInRow = table.rows.reduce((m, r) => Math.max(m, (r.cells || []).length), 0);
++		const numCols = Math.max(declaredCols, maxCellsInRow, 1);
++		const colWidths = [];
++		const declared = table.columnWidths || [];
++		const declaredSum = declared.reduce((s, w) => s + (w || 0), 0);
++		for (let i = 0; i < numCols; i++) {
++			if (declared[i] !== undefined) {
++				colWidths.push(declared[i]);
++			} else {
++				const remaining = Math.max(0, (width || 0) - declaredSum);
++				const undeclaredCount = numCols - declaredCols;
++				colWidths.push(undeclaredCount > 0 ? remaining / undeclaredCount : (width || 0) / numCols);
++			}
++		}
++		const declaredRowSum = table.rows.reduce((s, r) => s + (typeof r.height === "number" ? r.height : 0), 0);
++		const undeclaredRows = table.rows.filter((r) => typeof r.height !== "number").length;
++		const rowHeights = table.rows.map((r) => {
++			if (typeof r.height === "number") return r.height;
++			if (undeclaredRows === 0) return (height || 0) / table.rows.length;
++			return Math.max(0, (height || 0) - declaredRowSum) / undeclaredRows;
++		});
++		const colX = [0];
++		for (const w of colWidths) colX.push(colX[colX.length - 1] + w);
++		const rowY = [0];
++		for (const h of rowHeights) rowY.push(rowY[rowY.length - 1] + h);
++		const children = [];
++		for (let r = 0; r < table.rows.length; r++) {
++			const row = table.rows[r];
++			const cells = row.cells || [];
++			for (let c = 0; c < cells.length; c++) {
++				const cell = cells[c];
++				if (cell.hMerge || cell.vMerge) continue;
++				const colSpan = Math.max(1, cell.colSpan || 1);
++				const rowSpan = Math.max(1, cell.rowSpan || 1);
++				const cellLeft = left + colX[c];
++				const cellTop = top + rowY[r];
++				const cellRight = colX[Math.min(c + colSpan, colX.length - 1)];
++				const cellBottom = rowY[Math.min(r + rowSpan, rowY.length - 1)];
++				const cellWidth = (left + cellRight) - cellLeft;
++				const cellHeight = (top + cellBottom) - cellTop;
++				const cellFill = cell.fillRgb ? (0, _univerjs_core.getColorStyle)({ rgb: cell.fillRgb }) || "rgba(255,255,255,0)" : "rgba(255,255,255,0)";
++				const cellStroke = cell.outlineRgb ? (0, _univerjs_core.getColorStyle)({ rgb: cell.outlineRgb }) || "rgba(100,116,139,1)" : "rgba(100,116,139,1)";
++				const cellStrokeWidth = typeof cell.outlineWeight === "number" ? cell.outlineWeight : 1;
++				const cellRect = new _univerjs_engine_render.Rect(`${id}-r${r}c${c}-bg`, {
++					left: cellLeft,
++					top: cellTop,
++					width: cellWidth,
++					height: cellHeight,
++					fill: cellFill,
++					stroke: cellStroke,
++					strokeWidth: cellStrokeWidth,
++					zIndex: 0,
++					forceRender: true
++				});
++				children.push(cellRect);
++				const richDoc = cell.richText && cell.richText.rich;
++				if (richDoc) {
++					children.push(new _univerjs_engine_render.RichText(this._localeService, `${id}-r${r}c${c}-tx`, {
++						left: cellLeft,
++						top: cellTop,
++						width: cellWidth,
++						height: cellHeight,
++						zIndex: 1,
++						richText: richDoc,
++						forceRender: true
++					}));
++				} else if (cell.text) {
++					children.push(new _univerjs_engine_render.RichText(this._localeService, `${id}-r${r}c${c}-tx`, {
++						left: cellLeft,
++						top: cellTop,
++						width: cellWidth,
++						height: cellHeight,
++						zIndex: 1,
++						text: cell.text,
++						forceRender: true
++					}));
++				}
++			}
++		}
++		if (children.length === 0) {
++			children.push(new _univerjs_engine_render.Rect(`${id}-empty`, {
++				left, top, width, height,
++				fill: "rgba(245, 247, 250, 1)",
++				stroke: "rgba(100, 116, 139, 1)",
++				strokeWidth: 1,
++				zIndex: 0,
++				forceRender: true
++			}));
++		}
++		const group = new _univerjs_engine_render.Group(id, ...children);
++		group.reCalculateObjects();
++		return group;
++	}
++};
++TableAdaptor = __decorate([__decorateParam(0, (0, _univerjs_core.Inject)(_univerjs_core.LocaleService))], TableAdaptor);
++var TableAdaptorFactory = class {
++	constructor() {
++		_defineProperty(this, "zIndex", 5);
++	}
++	create(injector) {
++		return injector.createInstance(TableAdaptor);
++	}
++};
++CanvasObjectProviderRegistry.add(new TableAdaptorFactory());
++
++// Casual Slides patch — minimal CHART adaptor (PageElementType.CHART = 7).
++// Same idea as the table adaptor: render the chart's bounding rect with
++// a placeholder fill so it shows up. Real chart rendering needs to read
++// the passthrough chart XML and draw it; deferred to a later wave.
++let ChartAdaptor = class ChartAdaptor extends ObjectAdaptor {
++	constructor(_localeService) {
++		super();
++		this._localeService = _localeService;
++		_defineProperty(this, "zIndex", 2);
++		_defineProperty(this, "viewKey", 7);
++	}
++	check(type) {
++		if (type !== this.viewKey) return;
++		return this;
++	}
++	convert(pageElement) {
++		// Wave 13 — ChartAdaptor now renders a Group of (placeholder Rect
++		// + informational RichText overlay) so the user can SEE what kind
++		// of chart sits there at a glance, even though we don't render
++		// the chart geometry yet. Pulls chartType / series / categories
++		// from the structured IChart fields populated by wave 9d.
++		const { id, zIndex, left = 0, top = 0, width, height, angle, scaleX, scaleY, skewX, skewY, flipX, flipY, chart } = pageElement;
++		const w = width || 0;
++		const h = height || 0;
++		const bg = new _univerjs_engine_render.Rect(`${id}-bg`, {
++			fill: "rgba(239, 246, 255, 1)",
++			stroke: "rgba(59, 130, 246, 1)",
++			strokeWidth: 1,
++			left, top, width: w, height: h,
++			zIndex: 0,
++			forceRender: true
++		});
++		const children = [bg];
++		const chartType = chart && typeof chart.chartType === "string" ? chart.chartType : null;
++		const seriesCount = chart && Array.isArray(chart.series) ? chart.series.length : 0;
++		const catCount = chart && Array.isArray(chart.categories) ? chart.categories.length : 0;
++		const niceType = chartType
++			? chartType.charAt(0).toUpperCase() + chartType.slice(1) + " chart"
++			: "Chart";
++		const summary = [niceType];
++		if (seriesCount > 0) summary.push(`${seriesCount} ${seriesCount === 1 ? "series" : "series"}`);
++		if (catCount > 0) summary.push(`${catCount} ${catCount === 1 ? "category" : "categories"}`);
++		const label = "📊 " + summary.join(" · ");
++		const labelTop = top + Math.max(0, h / 2 - 14);
++		const labelDoc = {
++			id: `${id}-label-doc`,
++			body: {
++				dataStream: label + "\r\n",
++				textRuns: [{ st: 0, ed: label.length, ts: { fs: 12, cl: { rgb: "#1d4ed8" }, bl: 1 } }],
++				paragraphs: [{ startIndex: label.length, paragraphStyle: { horizontalAlign: 2 } }]
++			},
++			documentStyle: { renderConfig: { verticalAlign: 1 } }
++		};
++		children.push(new _univerjs_engine_render.RichText(this._localeService, `${id}-label`, {
++			left,
++			top: labelTop,
++			width: w,
++			height: 28,
++			zIndex: 1,
++			richText: labelDoc,
++			forceRender: true
++		}));
++		const group = new _univerjs_engine_render.Group(id, ...children);
++		group.zIndex = zIndex;
++		if (typeof angle === "number") group.angle = angle;
++		if (typeof scaleX === "number") group.scaleX = scaleX;
++		if (typeof scaleY === "number") group.scaleY = scaleY;
++		if (typeof skewX === "number") group.skewX = skewX;
++		if (typeof skewY === "number") group.skewY = skewY;
++		if (typeof flipX === "boolean") group.flipX = flipX;
++		if (typeof flipY === "boolean") group.flipY = flipY;
++		group.reCalculateObjects && group.reCalculateObjects();
++		return group;
++	}
++};
++ChartAdaptor = __decorate([__decorateParam(0, (0, _univerjs_core.Inject)(_univerjs_core.LocaleService))], ChartAdaptor);
++var ChartAdaptorFactory = class {
++	constructor() {
++		_defineProperty(this, "zIndex", 5);
++	}
++	create(injector) {
++		return injector.createInstance(ChartAdaptor);
++	}
++};
++CanvasObjectProviderRegistry.add(new ChartAdaptorFactory());
++
+ //#endregion
+ //#region src/views/render/adaptors/rich-text-adaptor.ts
+ let RichTextAdaptor = class RichTextAdaptor extends ObjectAdaptor {
+@@ -699,7 +1054,13 @@ let RichTextAdaptor = class RichTextAdaptor extends ObjectAdaptor {
+ 			forceRender: true
+ 		};
+ 		let isNotNull = false;
+-		if (text != null) {
++		if (rich != null) {
++			config = {
++				...config,
++				richText: rich
++			};
++			isNotNull = true;
++		} else if (text != null) {
+ 			config = {
+ 				...config,
+ 				text,
+@@ -715,12 +1076,6 @@ let RichTextAdaptor = class RichTextAdaptor extends ObjectAdaptor {
+ 				cl
+ 			};
+ 			isNotNull = true;
+-		} else if (rich != null) {
+-			config = {
+-				...config,
+-				richText: rich
+-			};
+-			isNotNull = true;
+ 		}
+ 		if (isNotNull === false) return;
+ 		return new _univerjs_engine_render.RichText(this._localeService, id, config);
+@@ -756,10 +1111,116 @@ var ShapeAdaptor = class extends ObjectAdaptor {
+ 		const outline = shapeProperties === null || shapeProperties === void 0 ? void 0 : shapeProperties.outline;
+ 		const strokeStyle = {};
+ 		if (outline) {
+-			const { outlineFill, weight } = outline;
++			const { outlineFill, weight, dashStyle, cap } = outline;
+ 			strokeStyle.strokeWidth = weight;
+ 			strokeStyle.stroke = (0, _univerjs_core.getColorStyle)(outlineFill) || "rgba(0,0,0,1)";
++			// Casual Slides patch — honour dashStyle (BorderStyleTypes) by
++			// mapping to engine-render's strokeDashArray (canvas lineDash).
++			// 1=THIN/2=HAIR/8=MEDIUM/13=THICK are solid (no entry); 0=NONE
++			// renders no stroke (handled below by clearing stroke).
++			// Reference: packages/core/src/types/enum/border-style-types.ts.
++			const dashMap = {
++				3: [1, 2],         // DOTTED
++				4: [4, 2],         // DASHED
++				5: [4, 2, 1, 2],   // DASH_DOT
++				6: [4, 2, 1, 2, 1, 2], // DASH_DOT_DOT
++				9: [6, 3],         // MEDIUM_DASHED
++				10: [6, 3, 1, 3],  // MEDIUM_DASH_DOT
++				11: [6, 3, 1, 3, 1, 3], // MEDIUM_DASH_DOT_DOT
++				12: [4, 2, 1, 2]   // SLANT_DASH_DOT
++			};
++			if (dashStyle !== undefined && dashMap[dashStyle]) {
++				strokeStyle.strokeDashArray = dashMap[dashStyle];
++			}
++			if (dashStyle === 0) {
++				// BorderStyleTypes.NONE — drop the stroke entirely.
++				strokeStyle.stroke = "rgba(0,0,0,0)";
++				strokeStyle.strokeWidth = 0;
++			}
++			// Casual Slides patch — outline.cap maps to canvas lineCap via
++			// engine-render's strokeLineCap shape prop. 'flat' is the
++			// OOXML default; 'rnd' rounds the stroke ends; 'sq' extends
++			// them by half the stroke width. Most visible on dashed
++			// strokes and on line/connector shapes where the endpoint
++			// shape matters. Only emit when explicitly set so we don't
++			// override the engine-render default unnecessarily.
++			if (cap === "rnd") {
++				strokeStyle.strokeLineCap = "round";
++			} else if (cap === "sq") {
++				strokeStyle.strokeLineCap = "square";
++			} else if (cap === "flat") {
++				strokeStyle.strokeLineCap = "butt";
++			}
+ 		}
++		// Casual Slides patch — outerShdw (drop shadow) via the canvas
++		// shadow* shape props. effectLst.outerShdw carries `color,
++		// blurRad, dist, dir` where dist is in EMU and dir is in
++		// 60000ths of a degree, clockwise from 3-o'clock (east) per
++		// the OOXML spec. We convert to pixel offsets:
++		//   shadowOffsetX = (dist / EMU_PER_PX) * cos(angleRad)
++		//   shadowOffsetY = (dist / EMU_PER_PX) * sin(angleRad)
++		// blurRad in EMU is mapped to canvas shadowBlur in px (blurRad
++		// covers a much wider visual area on canvas than in PowerPoint,
++		// so we scale down by ~2 — PowerPoint's "blur 12.7pt" looks
++		// roughly correct as canvas shadowBlur ~6). shadowOpacity is
++		// fixed at 0.4 since the OOXML alpha (carried separately) is
++		// not parsed end-to-end yet.
++		// blurRad is intentionally simplified — canvas shadowBlur is
++		// browser-tuned and high blur values can quintuple paint cost
++		// on every redraw.
++		const EMU_PER_PX = 9525;
++		const shadowStyle = {};
++		const effectLst = shapeProperties && shapeProperties.effectLst;
++		const outerShdw = effectLst && effectLst.outerShdw;
++		const glow = effectLst && effectLst.glow;
++		if (outerShdw) {
++			const distEmu = typeof outerShdw.dist === "number" ? outerShdw.dist : 0;
++			const distPx = distEmu / EMU_PER_PX;
++			const dirRaw = typeof outerShdw.dir === "number" ? outerShdw.dir : 0;
++			const angleRad = (dirRaw / 60000) * Math.PI / 180;
++			const blurEmu = typeof outerShdw.blurRad === "number" ? outerShdw.blurRad : 0;
++			const blurPx = blurEmu / EMU_PER_PX / 2;
++			shadowStyle.shadowEnabled = true;
++			shadowStyle.shadowColor = (0, _univerjs_core.getColorStyle)(outerShdw.color) || "rgba(0,0,0,1)";
++			shadowStyle.shadowOffsetX = distPx * Math.cos(angleRad);
++			shadowStyle.shadowOffsetY = distPx * Math.sin(angleRad);
++			shadowStyle.shadowBlur = blurPx;
++			shadowStyle.shadowOpacity = 0.4;
++			shadowStyle.shadowForStrokeEnabled = true;
++		} else if (glow) {
++			// Casual Slides patch — glow (D19 effectLst.glow). Canvas only
++			// gives us one shadow per draw call, so we reuse the shadow*
++			// props: zero offset + larger blur fakes a halo. glow.rad is
++			// the glow radius in EMU; we scale 1.5x relative to the
++			// outerShdw blur scale because glow needs to extend further
++			// out to look like a true halo (the shadow is centred on the
++			// shape boundary in both cases). Opacity tunable; 0.6 reads
++			// as "glow" without bleeding too much into surrounding text.
++			const radEmu = typeof glow.rad === "number" ? glow.rad : 0;
++			const radPx = radEmu / EMU_PER_PX * 1.5;
++			shadowStyle.shadowEnabled = true;
++			shadowStyle.shadowColor = (0, _univerjs_core.getColorStyle)(glow.color) || "rgba(255,255,200,1)";
++			shadowStyle.shadowOffsetX = 0;
++			shadowStyle.shadowOffsetY = 0;
++			shadowStyle.shadowBlur = radPx;
++			shadowStyle.shadowOpacity = 0.6;
++			shadowStyle.shadowForStrokeEnabled = true;
++		}
++		// Casual Slides patch — innerShdw / reflection / blur TODOs.
++		// innerShdw: parsed identically to outerShdw but the shadow goes
++		//   inside the shape's outline. Canvas has no native inner-shadow
++		//   API on a stroked path — would need a clip + offset trick (draw
++		//   shape; clip to shape; draw shadow at offset; unclip). Skipped
++		//   for minimum-viable; the shadow drops silently. TODO.
++		// reflection: produces a mirrored faded copy below the shape.
++		//   Needs a second flipped Path/Rect with a vertical-gradient
++		//   alpha mask. Hard to do at the adaptor layer (no offscreen
++		//   canvas access); needs engine-render widening. Skipped. TODO.
++		// blur: ctx.filter = 'blur(<rad>px)' on the *whole shape* would
++		//   work, but engine-render's Shape (Rect/Circle/Path) doesn't
++		//   plumb a `filter` prop through to the draw call — only Image
++		//   does (per the engine-render shadow-+-filter patch). Shape
++		//   would need the same widening. Skipped. TODO.
+ 		if (shapeType === "rect") return new _univerjs_engine_render.Rect(id, {
+ 			fill,
+ 			top,
+@@ -775,7 +1236,8 @@ var ShapeAdaptor = class extends ObjectAdaptor {
+ 			flipX,
+ 			flipY,
+ 			forceRender: true,
+-			...strokeStyle
++			...strokeStyle,
++			...shadowStyle
+ 		});
+ 		if (shapeType === "roundRect") return new _univerjs_engine_render.Rect(id, {
+ 			fill,
+@@ -793,10 +1255,10 @@ var ShapeAdaptor = class extends ObjectAdaptor {
+ 			flipY,
+ 			forceRender: true,
+ 			radius: (shapeProperties === null || shapeProperties === void 0 ? void 0 : shapeProperties.radius) || 0,
+-			...strokeStyle
++			...strokeStyle,
++			...shadowStyle
+ 		});
+ 		if (shapeType === "ellipse") {
+-			console.warn(shapeProperties === null || shapeProperties === void 0 ? void 0 : shapeProperties.radius);
+ 			return new _univerjs_engine_render.Circle(id, {
+ 				fill,
+ 				top,
+@@ -813,9 +1275,169 @@ var ShapeAdaptor = class extends ObjectAdaptor {
+ 				flipY,
+ 				forceRender: true,
+ 				radius: (shapeProperties === null || shapeProperties === void 0 ? void 0 : shapeProperties.radius) || 0,
+-				...strokeStyle
++				...strokeStyle,
++				...shadowStyle
++			});
++		}
++		// Casual Slides patch — per-prstGeom Path rendering for the most
++		// common non-rect shapes. Falls back to Rect for anything not
++		// listed. Coordinates are in object-local space (0..w / 0..h).
++		const w = width || 0;
++		const h = height || 0;
++		// D6 — custGeom: scale normalised pathData (0..1 fractions) to
++		// absolute object-local coords (0..w / 0..h).
++		const _customPath = shapeProperties && typeof shapeProperties.pathData === "string" && shapeProperties.pathData.length > 0 ? shapeProperties.pathData : null;
++		const _scaleCustomPath = (d) => d.replace(/([MLCQZmlcqz])([^MLCQZmlcqz]*)/g, (_m, cmd, args) => {
++			if (cmd === "Z" || cmd === "z") return cmd;
++			const nums = args.trim().split(/[\s,]+/).filter(Boolean);
++			const scaled = nums.map((n, i) => {
++				const v = parseFloat(n);
++				if (!Number.isFinite(v)) return n;
++				return (i % 2 === 0 ? v * w : v * h).toFixed(2);
++			});
++			const pairs = [];
++			for (let i = 0; i < scaled.length; i += 2) pairs.push(scaled[i] + "," + scaled[i + 1]);
++			return cmd + pairs.join(" ");
++		});
++		// D17 — arrowhead V-marker. See es bundle for full comment.
++		const _appendArrowheads = (basePath, cy, isLineFamily) => {
++			if (!isLineFamily || !outline) return basePath;
++			const sizeFor = (a) => {
++				const lMap = { sm: 6, med: 9, lg: 12 };
++				const wMap = { sm: 4, med: 6, lg: 8 };
++				return { l: lMap[(a && a.len) || "med"] || 9, halfW: ((wMap[(a && a.w) || "med"] || 6) / 2) };
++			};
++			const tail = outline.tailEnd;
++			const head = outline.headEnd;
++			let augmented = basePath;
++			if (tail && tail.type && tail.type !== "none") {
++				const { l, halfW } = sizeFor(tail);
++				augmented += ` M ${w - l} ${cy - halfW} L ${w} ${cy} L ${w - l} ${cy + halfW}`;
++			}
++			if (head && head.type && head.type !== "none") {
++				const { l, halfW } = sizeFor(head);
++				augmented += ` M ${l} ${cy - halfW} L 0 ${cy} L ${l} ${cy + halfW}`;
++			}
++			return augmented;
++		};
++		const pathData = (() => {
++			if (_customPath) return _scaleCustomPath(_customPath);
++			switch (shapeType) {
++				case "line":
++				case "straightConnector1":
++					return _appendArrowheads(`M 0 ${h / 2} L ${w} ${h / 2}`, h / 2, true);
++				case "triangle":
++					return `M ${w / 2} 0 L ${w} ${h} L 0 ${h} Z`;
++				case "rtTriangle":
++					return `M 0 0 L ${w} ${h} L 0 ${h} Z`;
++				case "diamond":
++					return `M ${w / 2} 0 L ${w} ${h / 2} L ${w / 2} ${h} L 0 ${h / 2} Z`;
++				case "parallelogram":
++					return `M ${w * 0.2} 0 L ${w} 0 L ${w * 0.8} ${h} L 0 ${h} Z`;
++				case "trapezoid":
++					return `M ${w * 0.25} 0 L ${w * 0.75} 0 L ${w} ${h} L 0 ${h} Z`;
++				case "pentagon": {
++					const cx = w / 2, cy = h / 2;
++					const rx = w / 2, ry = h / 2;
++					const pts = [];
++					for (let i = 0; i < 5; i++) {
++						const ang = -Math.PI / 2 + (2 * Math.PI * i) / 5;
++						pts.push(`${cx + rx * Math.cos(ang)} ${cy + ry * Math.sin(ang)}`);
++					}
++					return `M ${pts[0]} L ${pts.slice(1).join(" L ")} Z`;
++				}
++				case "hexagon": {
++					const cx = w / 2, cy = h / 2;
++					const rx = w / 2, ry = h / 2;
++					const pts = [];
++					for (let i = 0; i < 6; i++) {
++						const ang = (2 * Math.PI * i) / 6;
++						pts.push(`${cx + rx * Math.cos(ang)} ${cy + ry * Math.sin(ang)}`);
++					}
++					return `M ${pts[0]} L ${pts.slice(1).join(" L ")} Z`;
++				}
++				case "octagon": {
++					const cx = w / 2, cy = h / 2;
++					const rx = w / 2, ry = h / 2;
++					const pts = [];
++					for (let i = 0; i < 8; i++) {
++						const ang = -Math.PI / 8 + (2 * Math.PI * i) / 8;
++						pts.push(`${cx + rx * Math.cos(ang)} ${cy + ry * Math.sin(ang)}`);
++					}
++					return `M ${pts[0]} L ${pts.slice(1).join(" L ")} Z`;
++				}
++				case "rightArrow":
++					return `M 0 ${h * 0.3} L ${w * 0.7} ${h * 0.3} L ${w * 0.7} 0 L ${w} ${h / 2} L ${w * 0.7} ${h} L ${w * 0.7} ${h * 0.7} L 0 ${h * 0.7} Z`;
++				case "leftArrow":
++					return `M ${w} ${h * 0.3} L ${w * 0.3} ${h * 0.3} L ${w * 0.3} 0 L 0 ${h / 2} L ${w * 0.3} ${h} L ${w * 0.3} ${h * 0.7} L ${w} ${h * 0.7} Z`;
++				case "upArrow":
++					return `M ${w * 0.3} ${h} L ${w * 0.3} ${h * 0.3} L 0 ${h * 0.3} L ${w / 2} 0 L ${w} ${h * 0.3} L ${w * 0.7} ${h * 0.3} L ${w * 0.7} ${h} Z`;
++				case "downArrow":
++					return `M ${w * 0.3} 0 L ${w * 0.3} ${h * 0.7} L 0 ${h * 0.7} L ${w / 2} ${h} L ${w} ${h * 0.7} L ${w * 0.7} ${h * 0.7} L ${w * 0.7} 0 Z`;
++				case "chevron":
++					return `M 0 0 L ${w * 0.7} 0 L ${w} ${h / 2} L ${w * 0.7} ${h} L 0 ${h} L ${w * 0.3} ${h / 2} Z`;
++				case "plus":
++				case "mathPlus":
++					return `M ${w * 0.33} 0 L ${w * 0.67} 0 L ${w * 0.67} ${h * 0.33} L ${w} ${h * 0.33} L ${w} ${h * 0.67} L ${w * 0.67} ${h * 0.67} L ${w * 0.67} ${h} L ${w * 0.33} ${h} L ${w * 0.33} ${h * 0.67} L 0 ${h * 0.67} L 0 ${h * 0.33} L ${w * 0.33} ${h * 0.33} Z`;
++				case "star5":
++				case "star": {
++					const cx = w / 2, cy = h / 2;
++					const ro = Math.min(w, h) / 2;
++					const ri = ro * 0.4;
++					const pts = [];
++					for (let i = 0; i < 10; i++) {
++						const r = i % 2 === 0 ? ro : ri;
++						const ang = -Math.PI / 2 + (Math.PI * i) / 5;
++						pts.push(`${cx + r * Math.cos(ang)} ${cy + r * Math.sin(ang)}`);
++					}
++					return `M ${pts[0]} L ${pts.slice(1).join(" L ")} Z`;
++				}
++				default:
++					return null;
++			}
++		})();
++		if (pathData) {
++			return new _univerjs_engine_render.Path(id, {
++				data: pathData,
++				fill,
++				top,
++				left,
++				width,
++				height,
++				zIndex,
++				angle,
++				scaleX,
++				scaleY,
++				skewX,
++				skewY,
++				flipX,
++				flipY,
++				forceRender: true,
++				...strokeStyle,
++				...shadowStyle
+ 			});
+ 		}
++		// Fallback for everything else — at least keep the element visible
++		// as a bounding rect with the right fill + outline. Better than
++		// disappearing entirely.
++		return new _univerjs_engine_render.Rect(id, {
++			fill,
++			top,
++			left,
++			width,
++			height,
++			zIndex,
++			angle,
++			scaleX,
++			scaleY,
++			skewX,
++			skewY,
++			flipX,
++			flipY,
++			forceRender: true,
++			...strokeStyle,
++			...shadowStyle
++		});
+ 	}
+ };
+ var ShapeAdaptorFactory = class {
+diff --git a/lib/es/index.js b/lib/es/index.js
+index dcfd4547354becd08a18a870e3d74d68fc076e09..636fe19a0a5b307165687940a34fa7d4cfea4704 100644
+--- a/lib/es/index.js
++++ b/lib/es/index.js
+@@ -1,6 +1,6 @@
+-import { DocumentDataModel, IConfigService, IContextService, IUniverInstanceService, Inject, Injector, LocaleService, Plugin, Registry, Styles, UnitModel, UniverInstanceType, Worksheet, generateRandomId, getColorStyle, merge, sortRules } from "@univerjs/core";
++import { DocumentDataModel, ICommandService, IConfigService, IContextService, IUniverInstanceService, Inject, Injector, LocaleService, Plugin, Registry, Styles, UnitModel, UniverInstanceType, Worksheet, generateRandomId, getColorStyle, merge, sortRules } from "@univerjs/core";
+ import { BehaviorSubject } from "rxjs";
+-import { Circle, DocumentSkeleton, DocumentViewModel, Documents, IRenderingEngine, Image, Liquid, PageLayoutType, Rect, RichText, Scene, SceneViewer, ScrollBar, Slide, Spreadsheet, SpreadsheetColumnHeader, SpreadsheetRowHeader, SpreadsheetSkeleton, Viewport, getColor } from "@univerjs/engine-render";
++import { Circle, DocumentSkeleton, DocumentViewModel, Documents, Group, IRenderingEngine, Image, Liquid, PageLayoutType, Path, Rect, RichText, Scene, SceneViewer, ScrollBar, Slide, Spreadsheet, SpreadsheetColumnHeader, SpreadsheetRowHeader, SpreadsheetSkeleton, Viewport, getColor } from "@univerjs/engine-render";
+ 
+ //#region src/basics/const/default-slide.ts
+ /**
+@@ -44,6 +44,9 @@ let PageElementType = /* @__PURE__ */ function(PageElementType) {
+ 	PageElementType[PageElementType["SPREADSHEET"] = 3] = "SPREADSHEET";
+ 	PageElementType[PageElementType["DOCUMENT"] = 4] = "DOCUMENT";
+ 	PageElementType[PageElementType["SLIDE"] = 5] = "SLIDE";
++	PageElementType[PageElementType["TABLE"] = 6] = "TABLE";
++	PageElementType[PageElementType["CHART"] = 7] = "CHART";
++	PageElementType[PageElementType["VIDEO"] = 8] = "VIDEO";
+ 	return PageElementType;
+ }({});
+ let RelativeSlideLink = /* @__PURE__ */ function(RelativeSlideLink) {
+@@ -135,10 +138,15 @@ var SlideDataModel = class extends UnitModel {
+ 		this._unitId = (_this$_snapshot$id2 = this._snapshot.id) !== null && _this$_snapshot$id2 !== void 0 ? _this$_snapshot$id2 : generateRandomId(6);
+ 	}
+ 	getRev() {
+-		return 0;
++		var _this$_snapshot$rev;
++		return (_this$_snapshot$rev = this._snapshot.rev) !== null && _this$_snapshot$rev !== void 0 ? _this$_snapshot$rev : 1;
++	}
++	incrementRev() {
++		this._snapshot.rev = this.getRev() + 1;
++	}
++	setRev(rev) {
++		this._snapshot.rev = rev;
+ 	}
+-	incrementRev() {}
+-	setRev(_rev) {}
+ 	getSnapshot() {
+ 		return this._snapshot;
+ 	}
+@@ -638,7 +646,46 @@ var ImageAdaptor = class extends ObjectAdaptor {
+ 	convert(pageElement) {
+ 		const { id, zIndex, left = 0, top = 0, width, height, angle, scaleX, scaleY, skewX, skewY, flipX, flipY, title, description, image = {} } = pageElement;
+ 		const { imageProperties, placeholder, link } = image;
+-		return new Image(id, {
++		// Casual Slides patch — honour cropProperties (parsed from
++		// `<a:srcRect>` in pptx-import E3). Univer stores crop as
++		// fractional offsets (0..1) of the *source* image: e.g.
++		// offsetLeft=0.25 means "the left 25 % of the source is
++		// cropped away; what's visible is the right 75 %". The
++		// element's width/height in `pageElement` is the *displayed*
++		// (post-crop) size, so the implied full source width is
++		// `width / (1 - offsetLeft - offsetRight)`.
++		//
++		// engine-render's `IImageProps.srcRect` (ISrcRect = { left,
++		// top, right, bottom }) takes *pixel* offsets that extend the
++		// source-image draw past the element's bounding box on each
++		// side, while the box itself clips — which effectively crops.
++		// So:
++		//   srcRect.left   = displayedW * offsetL / (1 - offsetL - offsetR)
++		//   srcRect.right  = displayedW * offsetR / (1 - offsetL - offsetR)
++		//   srcRect.top    = displayedH * offsetT / (1 - offsetT - offsetB)
++		//   srcRect.bottom = displayedH * offsetB / (1 - offsetT - offsetB)
++		// If L+R or T+B sum to >=1 we'd divide by zero / negative; in
++		// that case skip the crop so the image still renders (full
++		// frame) rather than disappearing.
++		const cropProps = imageProperties && imageProperties.cropProperties;
++		let srcRect;
++		if (cropProps) {
++			const ol = cropProps.offsetLeft || 0;
++			const or = cropProps.offsetRight || 0;
++			const ot = cropProps.offsetTop || 0;
++			const ob = cropProps.offsetBottom || 0;
++			const denomW = 1 - ol - or;
++			const denomH = 1 - ot - ob;
++			if (denomW > 0.001 && denomH > 0.001) {
++				srcRect = {
++					left: (width * ol) / denomW,
++					right: (width * or) / denomW,
++					top: (height * ot) / denomH,
++					bottom: (height * ob) / denomH
++				};
++			}
++		}
++		const imageConfig = {
+ 			url: (imageProperties === null || imageProperties === void 0 ? void 0 : imageProperties.contentUrl) || "",
+ 			top,
+ 			left,
+@@ -653,7 +700,76 @@ var ImageAdaptor = class extends ObjectAdaptor {
+ 			flipX,
+ 			flipY,
+ 			forceRender: true
+-		});
++		};
++		if (srcRect) imageConfig.srcRect = srcRect;
++		// Casual Slides patch — honour imageProperties.effectLst (E6).
++		// Mirrors ShapeAdaptor's shadow / glow handling: outerShdw maps
++		// to canvas shadow*; glow re-uses the shadow channel with zero
++		// offset + larger blur as a halo. The engine-render Image patch
++		// applies these in Image.render() before _draw — see
++		// `patches/@univerjs__engine-render@0.24.0.patch`.
++		// innerShdw / reflection / blur on images are also TODOs (same
++		// reasons as on the shape side — see ShapeAdaptor comments).
++		const imgEffectLst = imageProperties && imageProperties.effectLst;
++		const imgOuterShdw = imgEffectLst && imgEffectLst.outerShdw;
++		const imgGlow = imgEffectLst && imgEffectLst.glow;
++		const EMU_PER_PX_IMG = 9525;
++		if (imgOuterShdw) {
++			const distEmu = typeof imgOuterShdw.dist === "number" ? imgOuterShdw.dist : 0;
++			const distPx = distEmu / EMU_PER_PX_IMG;
++			const dirRaw = typeof imgOuterShdw.dir === "number" ? imgOuterShdw.dir : 0;
++			const angleRad = (dirRaw / 60000) * Math.PI / 180;
++			const blurEmu = typeof imgOuterShdw.blurRad === "number" ? imgOuterShdw.blurRad : 0;
++			const blurPx = blurEmu / EMU_PER_PX_IMG / 2;
++			imageConfig.shadowEnabled = true;
++			imageConfig.shadowColor = getColorStyle(imgOuterShdw.color) || "rgba(0,0,0,1)";
++			imageConfig.shadowOffsetX = distPx * Math.cos(angleRad);
++			imageConfig.shadowOffsetY = distPx * Math.sin(angleRad);
++			imageConfig.shadowBlur = blurPx;
++			imageConfig.shadowOpacity = 0.4;
++		} else if (imgGlow) {
++			const radEmu = typeof imgGlow.rad === "number" ? imgGlow.rad : 0;
++			const radPx = radEmu / EMU_PER_PX_IMG * 1.5;
++			imageConfig.shadowEnabled = true;
++			imageConfig.shadowColor = getColorStyle(imgGlow.color) || "rgba(255,255,200,1)";
++			imageConfig.shadowOffsetX = 0;
++			imageConfig.shadowOffsetY = 0;
++			imageConfig.shadowBlur = radPx;
++			imageConfig.shadowOpacity = 0.6;
++		}
++		// Casual Slides patch — honour imageProperties.brightness /
++		// contrast / transparency (E5 + E4 unified path). The parser
++		// populates these as fractions (transparency is already 0..1
++		// fraction-removed per E4 wave 7h; brightness / contrast are
++		// upcoming sibling-agent work). Emit a CSS filter string via
++		// the engine-render Image `filter` prop (added by the
++		// engine-render patch). The Canvas filter semantics:
++		//   brightness(1)  = unchanged; 0 = black; 2 = double-bright
++		//   contrast(1)    = unchanged; 0 = grey; 2 = double-contrast
++		// PowerPoint stores brightness / contrast as signed -1..1
++		// offsets from neutral, so the parser is expected to land
++		// neutral=1 when both are zero. Defensive: skip filter when all
++		// three are at defaults so we don't pay the canvas-filter cost
++		// per redraw on every image. Engine-render's Image already has
++		// `opacity` for transparency; we keep that path too so legacy
++		// transparency-only images still render via globalAlpha (no
++		// canvas filter overhead) — the filter route is reserved for
++		// the brightness / contrast combo case.
++		const brightness = imageProperties && typeof imageProperties.brightness === "number" ? imageProperties.brightness : undefined;
++		const contrast = imageProperties && typeof imageProperties.contrast === "number" ? imageProperties.contrast : undefined;
++		const transparency = imageProperties && typeof imageProperties.transparency === "number" ? imageProperties.transparency : undefined;
++		const hasBrightness = brightness !== undefined && brightness !== 1;
++		const hasContrast = contrast !== undefined && contrast !== 1;
++		if (hasBrightness || hasContrast) {
++			const parts = [];
++			if (hasBrightness) parts.push("brightness(" + brightness + ")");
++			if (hasContrast) parts.push("contrast(" + contrast + ")");
++			imageConfig.filter = parts.join(" ");
++		}
++		if (transparency !== undefined && transparency > 0 && transparency <= 1) {
++			imageConfig.opacity = 1 - transparency;
++		}
++		return new Image(id, imageConfig);
+ 	}
+ };
+ var ImageAdaptorFactory = class {
+@@ -666,6 +782,397 @@ var ImageAdaptorFactory = class {
+ };
+ CanvasObjectProviderRegistry.add(new ImageAdaptorFactory());
+ 
++// Casual Slides patch — TABLE adaptor (PageElementType.TABLE = 6).
++// pptx-import G1-G4 parses <a:tbl> into pageElement.table = { rows:
++// [{ height, cells: [{ text, richText, fillRgb, outlineRgb,
++// outlineWeight, colSpan, rowSpan, hMerge, vMerge }] }],
++// columnWidths }. Earlier this adaptor drew just a bounding rect.
++// Now we render each cell as its own Rect (fill + border) plus a
++// RichText overlay for the text content, wrapped in an engine-render
++// Group so the table presents as one transformer-attachable object.
++//
++// Layout: rows + columns sized from the parser-supplied
++// `columnWidths` and per-row `height`. When the parser omits widths
++// or heights (e.g. autosized tables), we fall back to even
++// distribution of the table's outer width / height across the
++// declared columns / rows.
++//
++// Merges: cells flagged with `hMerge` or `vMerge` are skip-rendered
++// (their visual area is covered by the leading cell's `colSpan` /
++// `rowSpan`). The leading cell's drawn width / height grows to span
++// the merged columns / rows. We don't subtract borders on merged
++// boundaries — close enough for first-pass visual fidelity.
++//
++// Constructor takes LocaleService so we can build RichText overlays
++// (RichText's ctor wants `_localeService` for font fallback). Same
++// injection pattern as RichTextAdaptor.
++let TableAdaptor = class TableAdaptor extends ObjectAdaptor {
++	constructor(_localeService) {
++		super();
++		this._localeService = _localeService;
++		_defineProperty(this, "zIndex", 2);
++		_defineProperty(this, "viewKey", 6);
++	}
++	check(type) {
++		if (type !== this.viewKey) return;
++		return this;
++	}
++	convert(pageElement) {
++		const { id, zIndex, left = 0, top = 0, width, height, angle, scaleX, scaleY, skewX, skewY, flipX, flipY, table } = pageElement;
++		// If `table` is missing (shouldn't happen, but defensive),
++		// fall back to the previous bounding-rect behaviour so the
++		// element is at least visible.
++		if (!table || !table.rows || table.rows.length === 0) {
++			return new Rect(id, {
++				fill: "rgba(245, 247, 250, 1)",
++				stroke: "rgba(100, 116, 139, 1)",
++				strokeWidth: 1,
++				top, left, width, height, zIndex,
++				angle, scaleX, scaleY, skewX, skewY, flipX, flipY,
++				forceRender: true
++			});
++		}
++		// Resolve column widths. If parser didn't supply or supplied
++		// too few, distribute evenly to fill `width`.
++		const declaredCols = (table.columnWidths || []).length;
++		const maxCellsInRow = table.rows.reduce((m, r) => Math.max(m, (r.cells || []).length), 0);
++		const numCols = Math.max(declaredCols, maxCellsInRow, 1);
++		const colWidths = [];
++		const declared = table.columnWidths || [];
++		const declaredSum = declared.reduce((s, w) => s + (w || 0), 0);
++		for (let i = 0; i < numCols; i++) {
++			if (declared[i] !== undefined) {
++				colWidths.push(declared[i]);
++			} else {
++				// Spread remaining width across the columns we don't
++				// have an explicit value for.
++				const remaining = Math.max(0, (width || 0) - declaredSum);
++				const undeclaredCount = numCols - declaredCols;
++				colWidths.push(undeclaredCount > 0 ? remaining / undeclaredCount : (width || 0) / numCols);
++			}
++		}
++		// Resolve row heights similarly.
++		const declaredRowSum = table.rows.reduce((s, r) => s + (typeof r.height === "number" ? r.height : 0), 0);
++		const undeclaredRows = table.rows.filter((r) => typeof r.height !== "number").length;
++		const rowHeights = table.rows.map((r) => {
++			if (typeof r.height === "number") return r.height;
++			if (undeclaredRows === 0) return (height || 0) / table.rows.length;
++			return Math.max(0, (height || 0) - declaredRowSum) / undeclaredRows;
++		});
++		// Cumulative x / y offsets for each col / row boundary.
++		const colX = [0];
++		for (const w of colWidths) colX.push(colX[colX.length - 1] + w);
++		const rowY = [0];
++		for (const h of rowHeights) rowY.push(rowY[rowY.length - 1] + h);
++		const children = [];
++		for (let r = 0; r < table.rows.length; r++) {
++			const row = table.rows[r];
++			const cells = row.cells || [];
++			for (let c = 0; c < cells.length; c++) {
++				const cell = cells[c];
++				if (cell.hMerge || cell.vMerge) continue;
++				const colSpan = Math.max(1, cell.colSpan || 1);
++				const rowSpan = Math.max(1, cell.rowSpan || 1);
++				const cellLeft = left + colX[c];
++				const cellTop = top + rowY[r];
++				const cellRight = colX[Math.min(c + colSpan, colX.length - 1)];
++				const cellBottom = rowY[Math.min(r + rowSpan, rowY.length - 1)];
++				const cellWidth = (left + cellRight) - cellLeft;
++				const cellHeight = (top + cellBottom) - cellTop;
++				const cellFill = cell.fillRgb ? getColorStyle({ rgb: cell.fillRgb }) || "rgba(255,255,255,0)" : "rgba(255,255,255,0)";
++				const cellStroke = cell.outlineRgb ? getColorStyle({ rgb: cell.outlineRgb }) || "rgba(100,116,139,1)" : "rgba(100,116,139,1)";
++				const cellStrokeWidth = typeof cell.outlineWeight === "number" ? cell.outlineWeight : 1;
++				const cellRect = new Rect(`${id}-r${r}c${c}-bg`, {
++					left: cellLeft,
++					top: cellTop,
++					width: cellWidth,
++					height: cellHeight,
++					fill: cellFill,
++					stroke: cellStroke,
++					strokeWidth: cellStrokeWidth,
++					zIndex: 0,
++					forceRender: true
++				});
++				children.push(cellRect);
++				// Text overlay — prefer the rich DocumentData if present
++				// (B-wave runs / props), else fall back to flat text.
++				const richDoc = cell.richText && cell.richText.rich;
++				if (richDoc) {
++					children.push(new RichText(this._localeService, `${id}-r${r}c${c}-tx`, {
++						left: cellLeft,
++						top: cellTop,
++						width: cellWidth,
++						height: cellHeight,
++						zIndex: 1,
++						richText: richDoc,
++						forceRender: true
++					}));
++				} else if (cell.text) {
++					children.push(new RichText(this._localeService, `${id}-r${r}c${c}-tx`, {
++						left: cellLeft,
++						top: cellTop,
++						width: cellWidth,
++						height: cellHeight,
++						zIndex: 1,
++						text: cell.text,
++						forceRender: true
++					}));
++				}
++			}
++		}
++		// Empty table (e.g. all-merge): still emit a stub so the
++		// element exists. addObjects on Group needs at least one
++		// child to give it dimensions.
++		if (children.length === 0) {
++			children.push(new Rect(`${id}-empty`, {
++				left, top, width, height,
++				fill: "rgba(245, 247, 250, 1)",
++				stroke: "rgba(100, 116, 139, 1)",
++				strokeWidth: 1,
++				zIndex: 0,
++				forceRender: true
++			}));
++		}
++		const group = new Group(id, ...children);
++		// Re-base children's coordinates so they're relative to the
++		// Group's bounding box (computed from child extents). After
++		// this call, dragging the Group moves all cells together.
++		group.reCalculateObjects();
++		return group;
++	}
++};
++TableAdaptor = __decorate([__decorateParam(0, Inject(LocaleService))], TableAdaptor);
++var TableAdaptorFactory = class {
++	constructor() {
++		_defineProperty(this, "zIndex", 5);
++	}
++	create(injector) {
++		return injector.createInstance(TableAdaptor);
++	}
++};
++CanvasObjectProviderRegistry.add(new TableAdaptorFactory());
++
++// Casual Slides patch — minimal CHART adaptor (PageElementType.CHART = 7).
++// Same idea as the table adaptor: render the chart's bounding rect with
++// a placeholder fill so it shows up. Real chart rendering needs to read
++// the passthrough chart XML and draw it; deferred to a later wave.
++let ChartAdaptor = class ChartAdaptor extends ObjectAdaptor {
++	constructor(_localeService) {
++		super();
++		this._localeService = _localeService;
++		_defineProperty(this, "zIndex", 2);
++		_defineProperty(this, "viewKey", 7);
++	}
++	check(type) {
++		if (type !== this.viewKey) return;
++		return this;
++	}
++	convert(pageElement) {
++		// Casual Slides patch (H5) — render the chart geometry natively
++		// from the structured IChart (chartType / series / categories /
++		// colors). Bars, lines, pie slices, scatter dots are drawn as
++		// Rect / Path / Circle children of a Group; axes + labels as
++		// RichText. Not a full chart engine (no gridlines / legends /
++		// secondary axes) but a faithful at-a-glance render that beats
++		// the old placeholder card.
++		const { id, zIndex, left = 0, top = 0, width, height, angle, scaleX, scaleY, skewX, skewY, flipX, flipY, chart } = pageElement;
++		const w = width || 0;
++		const h = height || 0;
++		const chartType = chart && typeof chart.chartType === "string" ? chart.chartType : null;
++		const series = chart && Array.isArray(chart.series) ? chart.series : [];
++		const categories = chart && Array.isArray(chart.categories) ? chart.categories : [];
++		// Office default series palette (accent1..6 of the default theme).
++		const PALETTE = ["4472C4", "ED7D31", "A5A5A5", "FFC000", "5B9BD5", "70AD47", "264478", "9E480E", "636363", "997300"];
++		const seriesColor = (i, fallback) => {
++			const s = series[i];
++			const c = s && typeof s.color === "string" ? s.color : null;
++			return "#" + (c || PALETTE[i % PALETTE.length] || fallback || "4472C4");
++		};
++		const children = [];
++		// White chart background so it reads on any slide fill.
++		children.push(new Rect(`${id}-bg`, {
++			fill: "rgba(255,255,255,1)", left, top, width: w, height: h,
++			zIndex: 0, forceRender: true,
++		}));
++
++		const isBar = chartType === "bar" || chartType === "bar3D";
++		const isLine = chartType === "line" || chartType === "line3D";
++		const isArea = chartType === "area" || chartType === "area3D";
++		const isPie = chartType === "pie" || chartType === "pie3D" || chartType === "doughnut";
++		const isScatter = chartType === "scatter" || chartType === "bubble";
++		const isRadar = chartType === "radar";
++
++		let z = 1;
++		const addRect = (rid, props) => { children.push(new Rect(rid, { zIndex: z++, forceRender: true, ...props })); };
++		const addPath = (pid, dataStr, props) => { children.push(new Path(pid, { data: dataStr, zIndex: z++, forceRender: true, ...props })); };
++		const addLabel = (lid, txt, lx, ly, lw, lh, fs, color, alignH) => {
++			const t = String(txt);
++			children.push(new RichText(this._localeService, lid, {
++				left: lx, top: ly, width: lw, height: lh, zIndex: z++, forceRender: true,
++				richText: {
++					id: `${lid}-d`,
++					body: {
++						dataStream: t + "\r\n",
++						textRuns: [{ st: 0, ed: t.length, ts: { fs: fs || 9, cl: { rgb: color || "#595959" } } }],
++						paragraphs: [{ startIndex: t.length, paragraphStyle: { horizontalAlign: alignH == null ? 2 : alignH } }],
++					},
++					documentStyle: { renderConfig: { verticalAlign: 2 } },
++				},
++			}));
++		};
++
++		try {
++			if (isPie && series.length > 0) {
++				// Pie / doughnut. Arc Paths can't render inside a Group
++				// (Group's reCalculateObjects resets child scale/transform,
++				// which Path + rotated shapes depend on; plain axis-aligned
++				// Rect/Circle/RichText survive). So we show the proportions
++				// as a horizontal 100%-stacked bar — honest about each
++				// category's share + color + %. A circular pie needs a
++				// working Path-in-Group (separate follow-up).
++				const vals = series[0].values || [];
++				const total = vals.reduce((a, b) => a + (b > 0 ? b : 0), 0) || 1;
++				const pointCols = series[0].pointColors || [];
++				const barLeft = left + 16, barTop = top + Math.max(8, h / 2 - 26);
++				const barW = Math.max(10, w - 32), barH = 44;
++				let cursorX = barLeft;
++				for (let i = 0; i < vals.length; i++) {
++					const v = vals[i] > 0 ? vals[i] : 0;
++					const frac = v / total;
++					const segW = frac * barW;
++					const col = pointCols[i] ? "#" + pointCols[i] : seriesColor(i);
++					addRect(`${id}-slice-${i}`, { left: cursorX, top: barTop, width: Math.max(1, segW), height: barH, fill: col, stroke: "rgba(255,255,255,1)", strokeWidth: 1 });
++					if (segW > 28) addLabel(`${id}-pct-${i}`, Math.round(frac * 100) + "%", cursorX, barTop + barH / 2 - 7, segW, 14, 9, "#ffffff", 2);
++					if (segW > 20 && categories[i]) addLabel(`${id}-pcat-${i}`, categories[i], cursorX, barTop + barH + 2, segW, 14, 8, "#595959", 2);
++					cursorX += segW;
++				}
++			} else if ((isBar || isLine || isArea) && series.length > 0) {
++				// Cartesian plot. Reserve margins for axis labels.
++				const padL = 34, padR = 8, padT = 10, padB = 20;
++				const plotX = left + padL, plotY = top + padT;
++				const plotW = Math.max(10, w - padL - padR);
++				const plotH = Math.max(10, h - padT - padB);
++				// Value range across all series (include 0 baseline).
++				let maxV = 0, minV = 0;
++				for (const s of series) for (const v of (s.values || [])) { if (v > maxV) maxV = v; if (v < minV) minV = v; }
++				if (maxV === minV) maxV = minV + 1;
++				const range = maxV - minV;
++				const yOf = (v) => plotY + plotH - ((v - minV) / range) * plotH;
++				const catN = Math.max(1, categories.length || (series[0].values || []).length);
++				// Axis baseline + left axis line.
++				addRect(`${id}-axisX`, { left: plotX, top: plotY + plotH, width: plotW, height: 1, fill: "rgba(170,170,170,1)" });
++				addRect(`${id}-axisY`, { left: plotX, top: plotY, width: 1, height: plotH, fill: "rgba(170,170,170,1)" });
++				// Min/max value labels on the Y axis.
++				addLabel(`${id}-ymax`, Math.round(maxV), left, plotY - 6, padL - 3, 12, 8, "#595959", 3);
++				addLabel(`${id}-ymin`, Math.round(minV), left, plotY + plotH - 6, padL - 3, 12, 8, "#595959", 3);
++				const slot = plotW / catN;
++				if (isBar) {
++					const groupW = slot * 0.7;
++					const barW = groupW / series.length;
++					const gx0 = (slot - groupW) / 2;
++					for (let si = 0; si < series.length; si++) {
++						const vals = series[si].values || [];
++						const col = seriesColor(si);
++						for (let ci = 0; ci < catN; ci++) {
++							const v = vals[ci] || 0;
++							const bx = plotX + ci * slot + gx0 + si * barW;
++							const yTop = yOf(Math.max(v, minV < 0 ? 0 : minV));
++							const yBase = yOf(minV < 0 ? 0 : minV);
++							const bh = Math.abs(yBase - yOf(v));
++							addRect(`${id}-bar-${si}-${ci}`, { left: bx, top: Math.min(yTop, yBase), width: Math.max(1, barW - 1), height: Math.max(1, bh), fill: col });
++						}
++					}
++				} else {
++					// line / area — polyline through points, centered per slot.
++					for (let si = 0; si < series.length; si++) {
++						const vals = series[si].values || [];
++						const col = seriesColor(si);
++						const pts = [];
++						for (let ci = 0; ci < catN; ci++) {
++							const cx = plotX + ci * slot + slot / 2;
++							const cy = yOf(vals[ci] || 0);
++							pts.push([cx, cy]);
++						}
++						if (pts.length === 0) continue;
++						if (isArea) {
++							const base = yOf(minV < 0 ? 0 : minV);
++							let d = `M ${pts[0][0]} ${base} L ` + pts.map((p) => `${p[0]} ${p[1]}`).join(" L ") + ` L ${pts[pts.length - 1][0]} ${base} Z`;
++							void d; for (let pi = 0; pi < pts.length - 1; pi++) { const ax1 = pts[pi][0], ay1 = pts[pi][1], ax2 = pts[pi + 1][0], ay2 = pts[pi + 1][1]; const acols = Math.max(1, Math.round(ax2 - ax1)); for (let ac = 0; ac < acols; ac++) { const at = ac / acols; const axx = ax1 + (ax2 - ax1) * at; const ayy = ay1 + (ay2 - ay1) * at; addRect(`${id}-ac-${si}-${pi}-${ac}`, { left: axx, top: Math.min(ayy, base), width: 2, height: Math.abs(base - ayy), fill: col, opacity: 0.45 }); } }
++						} else {
++							let d = "M " + pts.map((p) => `${p[0]} ${p[1]}`).join(" L ");
++							for (let pi = 0; pi < pts.length - 1; pi++) { const lx1 = pts[pi][0], ly1 = pts[pi][1], lx2 = pts[pi + 1][0], ly2 = pts[pi + 1][1]; const seglen = Math.hypot(lx2 - lx1, ly2 - ly1) || 1; const steps = Math.max(1, Math.round(seglen / 3)); for (let s = 0; s <= steps; s++) { const t = s / steps; addRect(`${id}-ld-${si}-${pi}-${s}`, { left: lx1 + (lx2 - lx1) * t - 1.5, top: ly1 + (ly2 - ly1) * t - 1.5, width: 3, height: 3, fill: col }); } } void d;
++							// point markers
++							for (let pi = 0; pi < pts.length; pi++) {
++								addRect(`${id}-pt-${si}-${pi}`, { left: pts[pi][0] - 2, top: pts[pi][1] - 2, width: 4, height: 4, fill: col });
++							}
++						}
++					}
++				}
++				// Category labels along the X axis.
++				for (let ci = 0; ci < catN && ci < categories.length; ci++) {
++					addLabel(`${id}-cat-${ci}`, categories[ci], plotX + ci * slot, top + h - padB + 2, slot, padB - 2, 8, "#595959", 2);
++				}
++			} else if (isScatter && series.length > 0) {
++				const padL = 30, padR = 8, padT = 10, padB = 18;
++				const plotX = left + padL, plotY = top + padT;
++				const plotW = Math.max(10, w - padL - padR), plotH = Math.max(10, h - padT - padB);
++				// X from categories (numeric), Y from values.
++				const xs = (categories || []).map((c) => parseFloat(c)).filter((n) => !isNaN(n));
++				let xMin = Math.min(...(xs.length ? xs : [0])), xMax = Math.max(...(xs.length ? xs : [1]));
++				let yMin = 0, yMax = 0;
++				for (const s of series) for (const v of (s.values || [])) { if (v > yMax) yMax = v; if (v < yMin) yMin = v; }
++				if (xMax === xMin) xMax = xMin + 1;
++				if (yMax === yMin) yMax = yMin + 1;
++				addRect(`${id}-axisX`, { left: plotX, top: plotY + plotH, width: plotW, height: 1, fill: "rgba(170,170,170,1)" });
++				addRect(`${id}-axisY`, { left: plotX, top: plotY, width: 1, height: plotH, fill: "rgba(170,170,170,1)" });
++				for (let si = 0; si < series.length; si++) {
++					const vals = series[si].values || [];
++					const col = seriesColor(si);
++					for (let pi = 0; pi < vals.length; pi++) {
++						const xv = xs[pi] != null ? xs[pi] : pi;
++						const px = plotX + ((xv - xMin) / (xMax - xMin)) * plotW;
++						const py = plotY + plotH - ((vals[pi] - yMin) / (yMax - yMin)) * plotH;
++						children.push(new Circle(`${id}-dot-${si}-${pi}`, { left: px - 3, top: py - 3, radius: 3, fill: col, zIndex: z++, forceRender: true }));
++					}
++				}
++			} else {
++				// Unknown / unsupported chart type — keep a labeled card so
++				// the slot isn't empty.
++				children.push(new Rect(`${id}-bg2`, { fill: "rgba(244,247,252,1)", stroke: "rgba(180,200,230,1)", strokeWidth: 1, left, top, width: w, height: h, zIndex: z++, forceRender: true }));
++				const niceType = chartType ? chartType.charAt(0).toUpperCase() + chartType.slice(1) + " chart" : "Chart";
++				addLabel(`${id}-label`, niceType, left, top + h / 2 - 10, w, 20, 12, "#1d4ed8", 2);
++			}
++		} catch (e) {
++			// Any geometry error → fall back to a labeled card rather than
++			// crashing the whole slide render.
++			children.length = 1; // keep the bg
++			children.push(new Rect(`${id}-errbg`, { fill: "rgba(244,247,252,1)", stroke: "rgba(180,200,230,1)", strokeWidth: 1, left, top, width: w, height: h, zIndex: 1, forceRender: true }));
++		}
++
++		const group = new Group(id, ...children);
++		group.zIndex = zIndex;
++		if (typeof angle === "number") group.angle = angle;
++		if (typeof scaleX === "number") group.scaleX = scaleX;
++		if (typeof scaleY === "number") group.scaleY = scaleY;
++		if (typeof skewX === "number") group.skewX = skewX;
++		if (typeof skewY === "number") group.skewY = skewY;
++		if (typeof flipX === "boolean") group.flipX = flipX;
++		if (typeof flipY === "boolean") group.flipY = flipY;
++		group.reCalculateObjects && group.reCalculateObjects();
++		return group;
++	}
++};
++ChartAdaptor = __decorate([__decorateParam(0, Inject(LocaleService))], ChartAdaptor);
++var ChartAdaptorFactory = class {
++	constructor() {
++		_defineProperty(this, "zIndex", 5);
++	}
++	create(injector) {
++		return injector.createInstance(ChartAdaptor);
++	}
++};
++CanvasObjectProviderRegistry.add(new ChartAdaptorFactory());
++
+ //#endregion
+ //#region src/views/render/adaptors/rich-text-adaptor.ts
+ let RichTextAdaptor = class RichTextAdaptor extends ObjectAdaptor {
+@@ -698,7 +1205,13 @@ let RichTextAdaptor = class RichTextAdaptor extends ObjectAdaptor {
+ 			forceRender: true
+ 		};
+ 		let isNotNull = false;
+-		if (text != null) {
++		if (rich != null) {
++			config = {
++				...config,
++				richText: rich
++			};
++			isNotNull = true;
++		} else if (text != null) {
+ 			config = {
+ 				...config,
+ 				text,
+@@ -714,12 +1227,6 @@ let RichTextAdaptor = class RichTextAdaptor extends ObjectAdaptor {
+ 				cl
+ 			};
+ 			isNotNull = true;
+-		} else if (rich != null) {
+-			config = {
+-				...config,
+-				richText: rich
+-			};
+-			isNotNull = true;
+ 		}
+ 		if (isNotNull === false) return;
+ 		return new RichText(this._localeService, id, config);
+@@ -755,10 +1262,116 @@ var ShapeAdaptor = class extends ObjectAdaptor {
+ 		const outline = shapeProperties === null || shapeProperties === void 0 ? void 0 : shapeProperties.outline;
+ 		const strokeStyle = {};
+ 		if (outline) {
+-			const { outlineFill, weight } = outline;
++			const { outlineFill, weight, dashStyle, cap } = outline;
+ 			strokeStyle.strokeWidth = weight;
+ 			strokeStyle.stroke = getColorStyle(outlineFill) || "rgba(0,0,0,1)";
++			// Casual Slides patch — honour dashStyle (BorderStyleTypes) by
++			// mapping to engine-render's strokeDashArray (canvas lineDash).
++			// 1=THIN/2=HAIR/8=MEDIUM/13=THICK are solid (no entry); 0=NONE
++			// renders no stroke (handled below by clearing stroke).
++			// Reference: packages/core/src/types/enum/border-style-types.ts.
++			const dashMap = {
++				3: [1, 2],         // DOTTED
++				4: [4, 2],         // DASHED
++				5: [4, 2, 1, 2],   // DASH_DOT
++				6: [4, 2, 1, 2, 1, 2], // DASH_DOT_DOT
++				9: [6, 3],         // MEDIUM_DASHED
++				10: [6, 3, 1, 3],  // MEDIUM_DASH_DOT
++				11: [6, 3, 1, 3, 1, 3], // MEDIUM_DASH_DOT_DOT
++				12: [4, 2, 1, 2]   // SLANT_DASH_DOT
++			};
++			if (dashStyle !== undefined && dashMap[dashStyle]) {
++				strokeStyle.strokeDashArray = dashMap[dashStyle];
++			}
++			if (dashStyle === 0) {
++				// BorderStyleTypes.NONE — drop the stroke entirely.
++				strokeStyle.stroke = "rgba(0,0,0,0)";
++				strokeStyle.strokeWidth = 0;
++			}
++			// Casual Slides patch — outline.cap maps to canvas lineCap via
++			// engine-render's strokeLineCap shape prop. 'flat' is the
++			// OOXML default; 'rnd' rounds the stroke ends; 'sq' extends
++			// them by half the stroke width. Most visible on dashed
++			// strokes and on line/connector shapes where the endpoint
++			// shape matters. Only emit when explicitly set so we don't
++			// override the engine-render default unnecessarily.
++			if (cap === "rnd") {
++				strokeStyle.strokeLineCap = "round";
++			} else if (cap === "sq") {
++				strokeStyle.strokeLineCap = "square";
++			} else if (cap === "flat") {
++				strokeStyle.strokeLineCap = "butt";
++			}
++		}
++		// Casual Slides patch — outerShdw (drop shadow) via the canvas
++		// shadow* shape props. effectLst.outerShdw carries `color,
++		// blurRad, dist, dir` where dist is in EMU and dir is in
++		// 60000ths of a degree, clockwise from 3-o'clock (east) per
++		// the OOXML spec. We convert to pixel offsets:
++		//   shadowOffsetX = (dist / EMU_PER_PX) * cos(angleRad)
++		//   shadowOffsetY = (dist / EMU_PER_PX) * sin(angleRad)
++		// blurRad in EMU is mapped to canvas shadowBlur in px (blurRad
++		// covers a much wider visual area on canvas than in PowerPoint,
++		// so we scale down by ~2 — PowerPoint's "blur 12.7pt" looks
++		// roughly correct as canvas shadowBlur ~6). shadowOpacity is
++		// fixed at 0.4 since the OOXML alpha (carried separately) is
++		// not parsed end-to-end yet.
++		// blurRad is intentionally simplified — canvas shadowBlur is
++		// browser-tuned and high blur values can quintuple paint cost
++		// on every redraw.
++		const EMU_PER_PX = 9525;
++		const shadowStyle = {};
++		const effectLst = shapeProperties && shapeProperties.effectLst;
++		const outerShdw = effectLst && effectLst.outerShdw;
++		const glow = effectLst && effectLst.glow;
++		if (outerShdw) {
++			const distEmu = typeof outerShdw.dist === "number" ? outerShdw.dist : 0;
++			const distPx = distEmu / EMU_PER_PX;
++			const dirRaw = typeof outerShdw.dir === "number" ? outerShdw.dir : 0;
++			const angleRad = (dirRaw / 60000) * Math.PI / 180;
++			const blurEmu = typeof outerShdw.blurRad === "number" ? outerShdw.blurRad : 0;
++			const blurPx = blurEmu / EMU_PER_PX / 2;
++			shadowStyle.shadowEnabled = true;
++			shadowStyle.shadowColor = getColorStyle(outerShdw.color) || "rgba(0,0,0,1)";
++			shadowStyle.shadowOffsetX = distPx * Math.cos(angleRad);
++			shadowStyle.shadowOffsetY = distPx * Math.sin(angleRad);
++			shadowStyle.shadowBlur = blurPx;
++			shadowStyle.shadowOpacity = 0.4;
++			shadowStyle.shadowForStrokeEnabled = true;
++		} else if (glow) {
++			// Casual Slides patch — glow (D19 effectLst.glow). Canvas only
++			// gives us one shadow per draw call, so we reuse the shadow*
++			// props: zero offset + larger blur fakes a halo. glow.rad is
++			// the glow radius in EMU; we scale 1.5x relative to the
++			// outerShdw blur scale because glow needs to extend further
++			// out to look like a true halo (the shadow is centred on the
++			// shape boundary in both cases). Opacity tunable; 0.6 reads
++			// as "glow" without bleeding too much into surrounding text.
++			const radEmu = typeof glow.rad === "number" ? glow.rad : 0;
++			const radPx = radEmu / EMU_PER_PX * 1.5;
++			shadowStyle.shadowEnabled = true;
++			shadowStyle.shadowColor = getColorStyle(glow.color) || "rgba(255,255,200,1)";
++			shadowStyle.shadowOffsetX = 0;
++			shadowStyle.shadowOffsetY = 0;
++			shadowStyle.shadowBlur = radPx;
++			shadowStyle.shadowOpacity = 0.6;
++			shadowStyle.shadowForStrokeEnabled = true;
+ 		}
++		// Casual Slides patch — innerShdw / reflection / blur TODOs.
++		// innerShdw: parsed identically to outerShdw but the shadow goes
++		//   inside the shape's outline. Canvas has no native inner-shadow
++		//   API on a stroked path — would need a clip + offset trick (draw
++		//   shape; clip to shape; draw shadow at offset; unclip). Skipped
++		//   for minimum-viable; the shadow drops silently. TODO.
++		// reflection: produces a mirrored faded copy below the shape.
++		//   Needs a second flipped Path/Rect with a vertical-gradient
++		//   alpha mask. Hard to do at the adaptor layer (no offscreen
++		//   canvas access); needs engine-render widening. Skipped. TODO.
++		// blur: ctx.filter = 'blur(<rad>px)' on the *whole shape* would
++		//   work, but engine-render's Shape (Rect/Circle/Path) doesn't
++		//   plumb a `filter` prop through to the draw call — only Image
++		//   does (per the engine-render shadow-+-filter patch). Shape
++		//   would need the same widening. Skipped. TODO.
+ 		if (shapeType === "rect") return new Rect(id, {
+ 			fill,
+ 			top,
+@@ -774,7 +1387,8 @@ var ShapeAdaptor = class extends ObjectAdaptor {
+ 			flipX,
+ 			flipY,
+ 			forceRender: true,
+-			...strokeStyle
++			...strokeStyle,
++			...shadowStyle
+ 		});
+ 		if (shapeType === "roundRect") return new Rect(id, {
+ 			fill,
+@@ -792,10 +1406,10 @@ var ShapeAdaptor = class extends ObjectAdaptor {
+ 			flipY,
+ 			forceRender: true,
+ 			radius: (shapeProperties === null || shapeProperties === void 0 ? void 0 : shapeProperties.radius) || 0,
+-			...strokeStyle
++			...strokeStyle,
++			...shadowStyle
+ 		});
+ 		if (shapeType === "ellipse") {
+-			console.warn(shapeProperties === null || shapeProperties === void 0 ? void 0 : shapeProperties.radius);
+ 			return new Circle(id, {
+ 				fill,
+ 				top,
+@@ -812,9 +1426,220 @@ var ShapeAdaptor = class extends ObjectAdaptor {
+ 				flipY,
+ 				forceRender: true,
+ 				radius: (shapeProperties === null || shapeProperties === void 0 ? void 0 : shapeProperties.radius) || 0,
+-				...strokeStyle
++				...strokeStyle,
++				...shadowStyle
++			});
++		}
++		// Casual Slides patch — per-prstGeom Path rendering for the most
++		// common non-rect shapes. Falls back to Rect for anything not
++		// listed. Coordinates are in object-local space (0..w / 0..h).
++		const w = width || 0;
++		const h = height || 0;
++		// D6 — custGeom: the importer emits a normalised SVG-style path
++		// (coords are 0..1 fractions of the bbox) on shapeProperties.pathData.
++		// Scale it to absolute object-local coords (0..w / 0..h) so the
++		// engine-render Path can paint it. Each command's numbers
++		// alternate x, y; multiply x by w and y by h, preserve commas
++		// between point pairs.
++		const _customPath = shapeProperties && typeof shapeProperties.pathData === "string" && shapeProperties.pathData.length > 0 ? shapeProperties.pathData : null;
++		const _scaleCustomPath = (d) => d.replace(/([MLCQZmlcqz])([^MLCQZmlcqz]*)/g, (_m, cmd, args) => {
++			if (cmd === "Z" || cmd === "z") return cmd;
++			const nums = args.trim().split(/[\s,]+/).filter(Boolean);
++			const scaled = nums.map((n, i) => {
++				const v = parseFloat(n);
++				if (!Number.isFinite(v)) return n;
++				return (i % 2 === 0 ? v * w : v * h).toFixed(2);
++			});
++			const pairs = [];
++			for (let i = 0; i < scaled.length; i += 2) pairs.push(scaled[i] + "," + scaled[i + 1]);
++			return cmd + pairs.join(" ");
++		});
++		// D17 — arrowhead V-marker. Appends a short V (^>) shape to the
++		// path at start (headEnd) and/or end (tailEnd). Strokes-only so
++		// it picks up the same outline colour as the line itself — no
++		// separate filled-path needed. Sizes are constants based on the
++		// w/len attributes (sm/med/lg). Sufficient visual cue that "this
++		// is an arrow" for the line family; proper filled triangle /
++		// stealth / diamond / oval is a future iteration.
++		const _appendArrowheads = (basePath, cy, isLineFamily) => {
++			if (!isLineFamily || !outline) return basePath;
++			const sizeFor = (a) => {
++				const lMap = { sm: 6, med: 9, lg: 12 };
++				const wMap = { sm: 4, med: 6, lg: 8 };
++				return { l: lMap[(a && a.len) || "med"] || 9, halfW: ((wMap[(a && a.w) || "med"] || 6) / 2) };
++			};
++			const tail = outline.tailEnd;
++			const head = outline.headEnd;
++			let augmented = basePath;
++			if (tail && tail.type && tail.type !== "none") {
++				const { l, halfW } = sizeFor(tail);
++				augmented += ` M ${w - l} ${cy - halfW} L ${w} ${cy} L ${w - l} ${cy + halfW}`;
++			}
++			if (head && head.type && head.type !== "none") {
++				const { l, halfW } = sizeFor(head);
++				augmented += ` M ${l} ${cy - halfW} L 0 ${cy} L ${l} ${cy + halfW}`;
++			}
++			return augmented;
++		};
++		const pathData = (() => {
++			if (_customPath) return _scaleCustomPath(_customPath);
++			switch (shapeType) {
++				case "line":
++				case "straightConnector1":
++					// Horizontal line at vertical centre; covers the common
++					// case of pptx lines stored with cy=0 (our F4 import
++					// fix already inflates the bbox to outline width).
++					return _appendArrowheads(`M 0 ${h / 2} L ${w} ${h / 2}`, h / 2, true);
++				case "triangle":
++					return `M ${w / 2} 0 L ${w} ${h} L 0 ${h} Z`;
++				case "rtTriangle":
++					return `M 0 0 L ${w} ${h} L 0 ${h} Z`;
++				case "diamond":
++					return `M ${w / 2} 0 L ${w} ${h / 2} L ${w / 2} ${h} L 0 ${h / 2} Z`;
++				case "parallelogram":
++					return `M ${w * 0.2} 0 L ${w} 0 L ${w * 0.8} ${h} L 0 ${h} Z`;
++				case "trapezoid":
++					return `M ${w * 0.25} 0 L ${w * 0.75} 0 L ${w} ${h} L 0 ${h} Z`;
++				case "pentagon": {
++					const cx = w / 2, cy = h / 2;
++					const rx = w / 2, ry = h / 2;
++					const pts = [];
++					for (let i = 0; i < 5; i++) {
++						const ang = -Math.PI / 2 + (2 * Math.PI * i) / 5;
++						pts.push(`${cx + rx * Math.cos(ang)} ${cy + ry * Math.sin(ang)}`);
++					}
++					return `M ${pts[0]} L ${pts.slice(1).join(" L ")} Z`;
++				}
++				case "hexagon": {
++					// Pointy-side hexagon (matches PowerPoint default).
++					const cx = w / 2, cy = h / 2;
++					const rx = w / 2, ry = h / 2;
++					const pts = [];
++					for (let i = 0; i < 6; i++) {
++						const ang = (2 * Math.PI * i) / 6;
++						pts.push(`${cx + rx * Math.cos(ang)} ${cy + ry * Math.sin(ang)}`);
++					}
++					return `M ${pts[0]} L ${pts.slice(1).join(" L ")} Z`;
++				}
++				case "octagon": {
++					const cx = w / 2, cy = h / 2;
++					const rx = w / 2, ry = h / 2;
++					const pts = [];
++					for (let i = 0; i < 8; i++) {
++						const ang = -Math.PI / 8 + (2 * Math.PI * i) / 8;
++						pts.push(`${cx + rx * Math.cos(ang)} ${cy + ry * Math.sin(ang)}`);
++					}
++					return `M ${pts[0]} L ${pts.slice(1).join(" L ")} Z`;
++				}
++				case "rightArrow":
++					return `M 0 ${h * 0.3} L ${w * 0.7} ${h * 0.3} L ${w * 0.7} 0 L ${w} ${h / 2} L ${w * 0.7} ${h} L ${w * 0.7} ${h * 0.7} L 0 ${h * 0.7} Z`;
++				case "leftArrow":
++					return `M ${w} ${h * 0.3} L ${w * 0.3} ${h * 0.3} L ${w * 0.3} 0 L 0 ${h / 2} L ${w * 0.3} ${h} L ${w * 0.3} ${h * 0.7} L ${w} ${h * 0.7} Z`;
++				case "upArrow":
++					return `M ${w * 0.3} ${h} L ${w * 0.3} ${h * 0.3} L 0 ${h * 0.3} L ${w / 2} 0 L ${w} ${h * 0.3} L ${w * 0.7} ${h * 0.3} L ${w * 0.7} ${h} Z`;
++				case "downArrow":
++					return `M ${w * 0.3} 0 L ${w * 0.3} ${h * 0.7} L 0 ${h * 0.7} L ${w / 2} ${h} L ${w} ${h * 0.7} L ${w * 0.7} ${h * 0.7} L ${w * 0.7} 0 Z`;
++				case "chevron":
++					return `M 0 0 L ${w * 0.7} 0 L ${w} ${h / 2} L ${w * 0.7} ${h} L 0 ${h} L ${w * 0.3} ${h / 2} Z`;
++				case "plus":
++				case "mathPlus":
++					return `M ${w * 0.33} 0 L ${w * 0.67} 0 L ${w * 0.67} ${h * 0.33} L ${w} ${h * 0.33} L ${w} ${h * 0.67} L ${w * 0.67} ${h * 0.67} L ${w * 0.67} ${h} L ${w * 0.33} ${h} L ${w * 0.33} ${h * 0.67} L 0 ${h * 0.67} L 0 ${h * 0.33} L ${w * 0.33} ${h * 0.33} Z`;
++				case "star5":
++				case "star": {
++					const cx = w / 2, cy = h / 2;
++					const ro = Math.min(w, h) / 2;
++					const ri = ro * 0.4;
++					const pts = [];
++					for (let i = 0; i < 10; i++) {
++						const r = i % 2 === 0 ? ro : ri;
++						const ang = -Math.PI / 2 + (Math.PI * i) / 5;
++						pts.push(`${cx + r * Math.cos(ang)} ${cy + r * Math.sin(ang)}`);
++					}
++					return `M ${pts[0]} L ${pts.slice(1).join(" L ")} Z`;
++				}
++				case "wedgeRectCallout": {
++					// Rectangle with a triangular pointer / speech-bubble
++					// tail. avLst's adj1 (x-offset of tip from center, in
++					// 1/100000 of width) and adj2 (y-offset, of height)
++					// land on shapeProperties.prstAdjustments. Default
++					// matches a bottom-left tail when adjustments are
++					// absent (a reasonable midpoint for typical decks).
++					const adj1 = (shapeProperties && shapeProperties.prstAdjustments && typeof shapeProperties.prstAdjustments.adj1 === "number")
++						? shapeProperties.prstAdjustments.adj1 / 100000
++						: -0.2;
++					const adj2 = (shapeProperties && shapeProperties.prstAdjustments && typeof shapeProperties.prstAdjustments.adj2 === "number")
++						? shapeProperties.prstAdjustments.adj2 / 100000
++						: 0.625;
++					const tipX = Math.max(0, Math.min(w, w * (0.5 + adj1)));
++					const tipY = h * (0.5 + adj2);
++					// Tail base sits on the nearest edge (typically the
++					// bottom for adj2 > 0.5). Width ~ 8% of shape size.
++					const baseHalf = Math.max(8, Math.min(w, h) * 0.06);
++					if (tipY > h) {
++						// Tail points BELOW — base on the bottom edge.
++						return `M 0 0 L ${w} 0 L ${w} ${h} L ${Math.min(w, tipX + baseHalf)} ${h} L ${tipX} ${tipY} L ${Math.max(0, tipX - baseHalf)} ${h} L 0 ${h} Z`;
++					}
++					if (tipY < 0) {
++						// Tail above — base on the top edge.
++						return `M 0 0 L ${Math.max(0, tipX - baseHalf)} 0 L ${tipX} ${tipY} L ${Math.min(w, tipX + baseHalf)} 0 L ${w} 0 L ${w} ${h} L 0 ${h} Z`;
++					}
++					if (tipX > w) {
++						// Tail right — base on the right edge.
++						return `M 0 0 L ${w} 0 L ${w} ${Math.max(0, tipY - baseHalf)} L ${tipX} ${tipY} L ${w} ${Math.min(h, tipY + baseHalf)} L ${w} ${h} L 0 ${h} Z`;
++					}
++					if (tipX < 0) {
++						// Tail left — base on the left edge.
++						return `M 0 0 L ${w} 0 L ${w} ${h} L 0 ${h} L 0 ${Math.min(h, tipY + baseHalf)} L ${tipX} ${tipY} L 0 ${Math.max(0, tipY - baseHalf)} Z`;
++					}
++					// Tip inside the rect — degenerate. Just draw the rect.
++					return `M 0 0 L ${w} 0 L ${w} ${h} L 0 ${h} Z`;
++				}
++				default:
++					return null;
++			}
++		})();
++		if (pathData) {
++			return new Path(id, {
++				data: pathData,
++				fill,
++				top,
++				left,
++				width,
++				height,
++				zIndex,
++				angle,
++				scaleX,
++				scaleY,
++				skewX,
++				skewY,
++				flipX,
++				flipY,
++				forceRender: true,
++				...strokeStyle,
++				...shadowStyle
+ 			});
+ 		}
++		// Fallback for everything else — at least keep the element visible
++		// as a bounding rect with the right fill + outline. Better than
++		// disappearing entirely.
++		return new Rect(id, {
++			fill,
++			top,
++			left,
++			width,
++			height,
++			zIndex,
++			angle,
++			scaleX,
++			scaleY,
++			skewX,
++			skewY,
++			flipX,
++			flipY,
++			forceRender: true,
++			...strokeStyle,
++			...shadowStyle
++		});
+ 	}
+ };
+ var ShapeAdaptorFactory = class {
+@@ -916,6 +1741,30 @@ let SlideAdaptor = class SlideAdaptor extends ObjectAdaptor {
+ 			slideComponent.addPageScene(this._createScene(id, slideComponent, page, mainScene, model));
+ 		}
+ 		slideComponent.activeFirstPage();
++		// Casual Slides patch — re-paint the cached "canvas" bg Rect
++		// when slide.mutation.update-page lands. Without this, theme
++		// + bg-picker changes update the SlideDataModel snapshot
++		// (thumbnails + presenter re-read it on every render) but
++		// the main canvas keeps its stale Rect because the scene
++		// was built once at convert() time and nothing ties the
++		// snapshot back to the live Rect.
++		try {
++			const _cmdSvc = this._injector.get(ICommandService);
++			_cmdSvc.onCommandExecuted((info) => {
++				if (!info || info.id !== "slide.mutation.update-page") return;
++				const _params = info.params;
++				if (!_params || !_params.pageId) return;
++				const _patch = _params.patch;
++				if (!_patch || !("pageBackgroundFill" in _patch)) return;
++				const _scene = slideComponent.getSubScene(_params.pageId);
++				if (!_scene) return;
++				const _rect = _scene.getObject("canvas");
++				if (!_rect) return;
++				_rect.setProps({ fill: getColorStyle(_patch.pageBackgroundFill) || "rgba(255,255,255, 1)" });
++				if (typeof _rect.makeDirty === "function") _rect.makeDirty(true);
++				if (typeof _scene.makeDirty === "function") _scene.makeDirty(true);
++			});
++		} catch (_e) {}
+ 		return slideComponent;
+ 	}
+ 	_createScene(pageId, parent, page, mainScene, model) {
+diff --git a/lib/types/data-model/slide-data-model.d.ts b/lib/types/data-model/slide-data-model.d.ts
+index f22ab09ec126799709980b2d50cf54585e2d634d..c4d21f0b7baee04bc3b5e19295ca0c09464151af 100644
+--- a/lib/types/data-model/slide-data-model.d.ts
++++ b/lib/types/data-model/slide-data-model.d.ts
+@@ -31,7 +31,7 @@ export declare class SlideDataModel extends UnitModel<ISlideData, UniverInstance
+     setName(name: string): void;
+     getRev(): number;
+     incrementRev(): void;
+-    setRev(_rev: number): void;
++    setRev(rev: number): void;
+     getSnapshot(): ISlideData;
+     getUnitId(): string;
+     getPages(): {
+diff --git a/lib/types/types/interfaces/i-slide-data.d.ts b/lib/types/types/interfaces/i-slide-data.d.ts
+index 88df969eec8ab5685575597e40aaa007d4eb0823..ba5282b7ea056b4b1bcc6c667405be7a33b1b736 100644
+--- a/lib/types/types/interfaces/i-slide-data.d.ts
++++ b/lib/types/types/interfaces/i-slide-data.d.ts
+@@ -13,14 +13,27 @@
+  * See the License for the specific language governing permissions and
+  * limitations under the License.
+  */
+-import type { IColorStyle, ICustomBlock, IDocumentData, IImageProperties, ILists, IPlaceholder, IShapeProperties, ISize, IStyleBase, IStyleData, ITransformState, IWorksheetData, LocaleType, Nullable, ThemeColorType } from '@univerjs/core';
++import type { IColorStyle, ICustomBlock, IDocumentData, IImageProperties, ILists, IPlaceholder, IResources, IShapeProperties, ISize, IStyleBase, IStyleData, ITransformState, IWorksheetData, LocaleType, Nullable, ThemeColorType } from '@univerjs/core';
+ import type { ShapeType } from '../enum/prst-geom-type';
+ export interface ISlideData extends IReferenceSource {
+     id: string;
++    /**
++     * Revision of this slide deck. Used in collaborative editing. Starts from one.
++     * @ignore
++     */
++    rev?: number;
+     locale?: LocaleType;
+     title: string;
+     pageSize: ISize;
+     body?: ISlidePageBody;
++    /**
++     * Plugin / passthrough slot. Same shape as `IWorkbookData.resources` in
++     * the sheets package — plugin authors register a name and store opaque
++     * payloads here. Used for OOXML round-trip passthrough (raw XML for
++     * layouts, masters, themes that the model doesn't natively cover),
++     * comments, animations, etc.
++     */
++    resources?: IResources;
+ }
+ interface IReferenceSource {
+     master?: {
+@@ -111,6 +124,12 @@ export interface IPageElement {
+     document?: IDocumentData;
+     /** @deprecated */
+     slide?: ISlideData;
++    /** Native table — set when `type === PageElementType.TABLE`. */
++    table?: ITable;
++    /** Native chart reference — set when `type === PageElementType.CHART`. */
++    chart?: IChart;
++    /** Embedded video — set when `type === PageElementType.VIDEO`. */
++    video?: IVideo;
+     customBlock?: ICustomBlock;
+ }
+ export declare enum PageType {
+@@ -126,7 +145,10 @@ export declare enum PageElementType {
+     TEXT = 2,
+     SPREADSHEET = 3,
+     DOCUMENT = 4,
+-    SLIDE = 5
++    SLIDE = 5,
++    TABLE = 6,
++    CHART = 7,
++    VIDEO = 8
+ }
+ /**
+  * IShape
+@@ -155,4 +177,41 @@ export declare enum RelativeSlideLink {
+     FIRST_SLIDE = 3,// A link to the first slide in the presentation.
+     LAST_SLIDE = 4
+ }
++/**
++ * Native table. Maps to OOXML `<a:tbl>` inside a `<p:graphicFrame>`.
++ */
++export interface ITable {
++    rows: ITableRow[];
++    columnWidths?: number[];
++}
++export interface ITableRow {
++    height?: number;
++    cells: ITableCell[];
++}
++export interface ITableCell {
++    text?: string;
++    richText?: ISlideRichTextProps;
++    fillRgb?: string;
++    outlineRgb?: string;
++    outlineWeight?: number;
++    colSpan?: number;
++    rowSpan?: number;
++    hMerge?: boolean;
++    vMerge?: boolean;
++}
++/**
++ * Chart reference — the chart's data + style lives in
++ * `ppt/charts/chartN.xml`, captured via the resources passthrough.
++ */
++export interface IChart {
++    chartId: string;
++    chartPath?: string;
++}
++/**
++ * Embedded video — maps to OOXML `<p:pic>` with an `<a:videoFile>` ext.
++ */
++export interface IVideo {
++    contentUrl?: string;
++    posterUrl?: string;
++}
+ export {};

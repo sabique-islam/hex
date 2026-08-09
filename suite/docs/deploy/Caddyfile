@@ -1,0 +1,10 @@
+# TLS-terminate and proxy everything to the collab server `app`, which
+# serves the SPA, the REST surface (/api/rooms, /auth, /files, /wopi),
+# and the Hocuspocus WS broker (/yjs) all from one origin.
+#
+# Set COLLAB_SITE_ADDRESS to a real hostname (e.g. doc.example.com) for
+# automatic HTTPS, or leave the :8080 default for local/proxied use.
+
+{$COLLAB_SITE_ADDRESS::8080} {
+	reverse_proxy app:8080
+}

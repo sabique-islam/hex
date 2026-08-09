@@ -1,0 +1,76 @@
+# Source trees the image doesn't need
+.git
+.github
+.vscode
+.idea
+
+# Local dev clutter
+node_modules
+**/node_modules
+**/.vite
+**/dist
+**/build
+**/.next
+**/.turbo
+
+# Tests, fixtures, screenshots — not part of the runtime
+test-results
+playwright-report
+**/__tests__
+**/*.test.*
+**/*.spec.*
+
+# Editor / OS
+.DS_Store
+*.swp
+.env*
+!.env.example
+
+# Vendored Univer fork (submodule). The fork is wired into the
+# workspace via `pnpm.overrides` link: paths, so the docker image
+# needs the package.jsons + built lib/ outputs at the same paths.
+# The host's pre-build step (`./scripts/setup-fork.sh`) populates
+# vendor/univer-revamp/packages/*/lib/ + flips each package.json's
+# main/exports to the lib shape before docker build kicks in.
+vendor
+!vendor/univer-revamp
+# Shared design-system submodule — keep it AND its committed dist/ (the app
+# resolves `link:vendor/design-system`; the `**/dist` rule above would
+# otherwise strip the built output it needs).
+!vendor/design-system
+!vendor/design-system/**
+vendor/design-system/.git
+
+# Trim only the parts the build truly doesn't read: .git metadata,
+# upstream examples / e2e / mock fixtures, turbo caches. KEEP the
+# fork's node_modules and package src/ — tsc walks into the fork's
+# compiled lib/types/*.d.ts during the app build, and those files
+# `import` from sibling fork packages by bare specifier
+# (`@univerjs/data-validation`, etc.). The resolution walks up from
+# the d.ts file's location looking for a `node_modules` directory.
+# On the host that hits `vendor/univer-revamp/node_modules/.pnpm/`,
+# which is what the fork's own `pnpm install` populates. Stripping
+# those node_modules in docker made tsc unable to resolve those
+# transitive @univerjs/* imports and threw module-augmentation
+# errors like 'Property getActiveWorkbook does not exist on FUniver'
+# across the entire app bundle build.
+vendor/univer-revamp/.git
+vendor/univer-revamp/**/.turbo
+vendor/univer-revamp/examples
+vendor/univer-revamp/e2e
+vendor/univer-revamp/mock
+
+# Docs and standalone sites
+docs
+site
+*.md
+!README.md
+
+# Local docker artifacts
+docker-compose.override.yml
+
+# Coverage / logs
+coverage
+*.log
+npm-debug.log*
+pnpm-debug.log*

@@ -1,0 +1,708 @@
+diff --git a/lib/cjs/index.js b/lib/cjs/index.js
+index fafb8476bdd10d7a5224234dc0d7494756933de3..8e4e926bbe74e26b51667f8192ce4c3c18141f79 100644
+--- a/lib/cjs/index.js
++++ b/lib/cjs/index.js
+@@ -12648,6 +12648,12 @@ function _createSkeletonWordOrLetter(glyphType, content, config, glyphWidth, gly
+ 		width += delta;
+ 		xOffset += delta;
+ 	}
++	// B14 — letter spacing from IStyleBase.spc (pt). Adds to glyph
++	// advance width so downstream line-wrap / justification / glyph
++	// positioning all see the shaped width.
++	if (textStyle && typeof textStyle.spc === "number" && textStyle.spc !== 0) {
++		width += ptToPixel(textStyle.spc);
++	}
+ 	return {
+ 		content,
+ 		ts: textStyle,
+@@ -14377,6 +14383,14 @@ function getFontCreateConfig(index, viewModel, paragraphNode, sectionBreakConfig
+ 		...customRangeStyle,
+ 		...bulletTextStyle
+ 	};
++	// C13 — apply `<a:normAutofit fontScale>` at render-time. The
++	// slides importer stores the fraction on
++	// `documentStyle.renderConfig.fontScale` instead of multiplying
++	// each run's `fs` at import (which double-shrinks on re-import).
++	const _c13FontScale = renderConfig && renderConfig.fontScale;
++	if (typeof _c13FontScale === "number" && _c13FontScale !== 1 && _c13FontScale > 0 && typeof textStyle.fs === "number") {
++		textStyle = { ...textStyle, fs: Math.round(textStyle.fs * _c13FontScale * 10) / 10 };
++	}
+ 	const result = {
+ 		fontStyle: getFontStyleString(textStyle),
+ 		textStyle: {
+@@ -19655,6 +19669,24 @@ var Image$1 = class extends Shape {
+ 		const centerY = realTop + realHeight / 2;
+ 		mainCtx.transform(m[0], m[1], m[2], m[3], centerX, centerY);
+ 		if (this.opacity !== 1) mainCtx.globalAlpha = this.opacity;
++		// Casual Slides patch — apply shadow / glow + CSS filter (blur,
++		// brightness, contrast) on the Image draw call. Image.render()
++		// upstream ignores the shadow* props inherited from Shape (the
++		// shape's _renderFill / _renderStroke path is where shadow gets
++		// committed to ctx, and Image overrides _draw instead). Same goes
++		// for `filter` — there's no upstream code path that pushes it
++		// through. We honour both here so the slides ImageAdaptor can
++		// pass them down without an out-of-band rendering pass. mainCtx
++		// is already inside save()/restore(), so we don't have to undo.
++		if (this.shadowEnabled) {
++			if (this.shadowColor) mainCtx.shadowColor = this.shadowColor;
++			if (typeof this.shadowBlur === "number") mainCtx.shadowBlur = this.shadowBlur;
++			if (typeof this.shadowOffsetX === "number") mainCtx.shadowOffsetX = this.shadowOffsetX;
++			if (typeof this.shadowOffsetY === "number") mainCtx.shadowOffsetY = this.shadowOffsetY;
++		}
++		if (this._props && this._props.filter) {
++			mainCtx.filter = this._props.filter;
++		}
+ 		this._draw(mainCtx, void 0, realWidth, realHeight);
+ 		mainCtx.restore();
+ 		this.makeDirty(false);
+@@ -19790,8 +19822,9 @@ var Path = class Path extends Shape {
+ 				else fixX = this.width - preWidth;
+ 				if (!preHeight) fixY = 0;
+ 				else fixY = this.height - preHeight;
+-				const increaseScaleX = fixX / width;
+-				const increaseScaleY = fixY / height;
++				// Casual Slides patch — guard against 0-extent path bbox.
++				const increaseScaleX = width === 0 ? 0 : fixX / width;
++				const increaseScaleY = height === 0 ? 0 : fixY / height;
+ 				this.scaleX += increaseScaleX;
+ 				this.scaleY += increaseScaleY;
+ 				this.left = this.left - left * increaseScaleX;
+@@ -20374,14 +20407,18 @@ var Path = class Path extends Shape {
+ 	}
+ 	_setFixBoundingBox() {
+ 		const { left, top, width, height } = this._getSelfRect();
+-		const fixScaleX = this.width / width;
+-		const fixScaleY = this.height / height;
++		// Casual Slides patch — guard against width/height = 0 in the
++		// path data bbox (horizontal / vertical line connectors).
++		const _csW = width === 0 ? this.width || 1 : width;
++		const _csH = height === 0 ? this.height || 1 : height;
++		const fixScaleX = this.width / _csW;
++		const fixScaleY = this.height / _csH;
+ 		this.left = this.left - left * fixScaleX;
+ 		this.top = this.top - top * fixScaleY;
+ 		this.scaleX = fixScaleX;
+ 		this.scaleY = fixScaleY;
+-		this.width = width;
+-		this.height = height;
++		this.width = _csW;
++		this.height = _csH;
+ 		this._setTransForm();
+ 	}
+ 	_getSelfRect() {
+@@ -20633,21 +20670,45 @@ var RichText = class extends BaseObject {
+ 		const docModel = this.documentModel = new _univerjs_core.DocumentDataModel(this._documentData);
+ 		const docViewModel = new DocumentViewModel(docModel);
+ 		this._documentSkeleton = DocumentSkeleton.create(docViewModel, this._localeService);
++		// Casual Slides patch — honour documentStyle.margin* as text-frame
++		// insets instead of hardcoding zero. PowerPoint's <a:bodyPr> lIns
++		// / tIns / rIns / bIns flow through our parser into
++		// documentStyle.marginLeft / marginTop / marginRight / marginBottom.
++		// Without this read the text always butts up against the frame's
++		// upper-left edge regardless of the inset.
++		const _csDocStyle = (this._documentData && this._documentData.documentStyle) || {};
+ 		this._documents = new Documents(`${this.oKey}_DOCUMENTS`, this._documentSkeleton, {
+-			pageMarginLeft: 0,
+-			pageMarginTop: 0
++			pageMarginLeft: _csDocStyle.marginLeft || 0,
++			pageMarginTop: _csDocStyle.marginTop || 0
+ 		});
+ 		this._initialProps(props);
+ 		this.onTransformChange$.subscribeEvent((changeState) => {
+ 			const { type } = changeState;
+ 			if (type === 1 || type === 5) {
+-				docModel.updateDocumentDataPageSize(this.width);
++				// C10 — shrink page width by lIns + rIns so right inset is implicit.
++				const _c10StyleR = (this._documentData && this._documentData.documentStyle) || {};
++				const _c10MLR = _c10StyleR.marginLeft || 0;
++				const _c10MRR = _c10StyleR.marginRight || 0;
++				const _c10InnerWR = Math.max(0, this.width - _c10MLR - _c10MRR);
++				docModel.updateDocumentDataPageSize(_c10InnerWR);
+ 				this._documentSkeleton.makeDirty(true);
+ 				this._documentSkeleton.calculate();
+-				const size = this.getDocsSkeletonPageSize();
+-				this.height = (size === null || size === void 0 ? void 0 : size.height) || this.height;
++				// Casual Slides patch — DO NOT auto-grow `this.height` to the
++				// laid-out text size. The original behaviour assigned the
++				// rendered text height back to the frame, which made imported
++				// pptx text frames silently expand past their authored
++				// bounding box ("text out of canvas box" — slides authored
++				// with autofit / clip semantics expect the frame to stay put
++				// while text overflows or shrinks). Keeping the original
++				// height respects the imported frame; autofit (font shrink)
++				// is parsed by the importer as a fs multiplier on each run.
+ 				this._setTransForm();
+ 				this.refreshDocumentByDocData();
++				// Casual Slides patch — keep inner Documents.height in
++				// sync with the outer RichText.height on every resize.
++				if (this._documents) {
++					this._documents.transformByState({ width: this.width, height: this.height });
++				}
+ 			}
+ 		});
+ 	}
+@@ -20709,6 +20770,27 @@ var RichText = class extends BaseObject {
+ 		const m = this.transform.getMatrix();
+ 		mainCtx.save();
+ 		mainCtx.transform(m[0], m[1], m[2], m[3], m[4], m[5]);
++		// C12 — arbitrary-angle body rotation. Glyph extension already
++		// handles 90°/270° per-glyph; rotate the frame here for all
++		// other angles.
++		const docRenderConfig = (() => {
++			try {
++				const docs = this._documents;
++				const sk = docs && typeof docs.getDocsSkeleton === "function" ? docs.getDocsSkeleton() : null;
++				const vm = sk && typeof sk.getViewModel === "function" ? sk.getViewModel() : null;
++				const dm = vm && typeof vm.getDataModel === "function" ? vm.getDataModel() : null;
++				const snap = dm && typeof dm.getSnapshot === "function" ? dm.getSnapshot() : null;
++				return snap && snap.documentStyle && snap.documentStyle.renderConfig;
++			} catch (_e) { return null; }
++		})();
++		const centerAngle = docRenderConfig && docRenderConfig.centerAngle;
++		if (typeof centerAngle === "number" && centerAngle !== 0 && centerAngle % 90 !== 0) {
++			const cx = this.width / 2;
++			const cy = this.height / 2;
++			mainCtx.translate(cx, cy);
++			mainCtx.rotate(centerAngle * Math.PI / 180);
++			mainCtx.translate(-cx, -cy);
++		}
+ 		this._draw(mainCtx);
+ 		mainCtx.restore();
+ 		this.makeDirty(false);
+@@ -20757,16 +20839,37 @@ var RichText = class extends BaseObject {
+ 		};
+ 	}
+ 	_initialProps(props) {
+-		this._documentSkeleton.getViewModel().getDataModel().updateDocumentDataPageSize(props === null || props === void 0 ? void 0 : props.width, props === null || props === void 0 ? void 0 : props.height);
++		// Casual Slides patch — use Infinity for the docs page-height so
++		// the docs engine lays out all text on a SINGLE page rather than
++		// paginating. See es/index.js for rationale.
++		// C10 — shrink page width by lIns + rIns so right inset is implicit.
++		const _c10Style = (this._documentData && this._documentData.documentStyle) || {};
++		const _c10ML = _c10Style.marginLeft || 0;
++		const _c10MR = _c10Style.marginRight || 0;
++		const _c10PropsW = (props === null || props === void 0 ? void 0 : props.width) || 0;
++		const _c10InnerW = Math.max(0, _c10PropsW - _c10ML - _c10MR);
++		this._documentSkeleton.getViewModel().getDataModel().updateDocumentDataPageSize(_c10PropsW > 0 ? _c10InnerW : (props === null || props === void 0 ? void 0 : props.width), Infinity);
+ 		this._documentSkeleton.calculate();
+ 		const contentSize = this.getDocsSkeletonPageSize();
++		// Casual Slides patch — respect caller's authored width / height
++		// when provided. See es/index.js for the rationale (imported pptx
++		// frames have authoritative bounds; renderer must keep them).
++		const _csOuterW = ((props === null || props === void 0 ? void 0 : props.width)) || ((contentSize === null || contentSize === void 0 ? void 0 : contentSize.width) || 0);
++		const _csOuterH = ((props === null || props === void 0 ? void 0 : props.height)) || ((contentSize === null || contentSize === void 0 ? void 0 : contentSize.height) || 0);
+ 		this.transformByState({
+-			width: (contentSize === null || contentSize === void 0 ? void 0 : contentSize.width) || 0,
+-			height: (contentSize === null || contentSize === void 0 ? void 0 : contentSize.height) || 0,
++			width: _csOuterW,
++			height: _csOuterH,
+ 			left: (props === null || props === void 0 ? void 0 : props.left) || 0,
+ 			top: (props === null || props === void 0 ? void 0 : props.top) || 0,
+ 			angle: props === null || props === void 0 ? void 0 : props.angle
+ 		});
++		// Casual Slides patch — propagate authored frame dimensions to
++		// the inner Documents so the docs anchor handler reads a
++		// non-zero height. Without this, MIDDLE-anchored text gets
++		// `(0 - pageHeight) / 2` and renders above the frame top.
++		if (this._documents) {
++			this._documents.transformByState({ width: _csOuterW, height: _csOuterH });
++		}
+ 		this.setProps(props);
+ 		this.makeDirty(true);
+ 	}
+@@ -20776,11 +20879,17 @@ var RichText = class extends BaseObject {
+ 	refreshDocumentByDocData() {
+ 		const docViewModel = new DocumentViewModel(this.documentModel = new _univerjs_core.DocumentDataModel(this._documentData));
+ 		this._documentSkeleton = DocumentSkeleton.create(docViewModel, this._localeService);
++		// Casual Slides patch — same margin read as initial construction.
++		const _csDocStyle = (this._documentData && this._documentData.documentStyle) || {};
+ 		this._documents = new Documents(`${this.oKey}_DOCUMENTS`, this._documentSkeleton, {
+-			pageMarginLeft: 0,
+-			pageMarginTop: 0
++			pageMarginLeft: _csDocStyle.marginLeft || 0,
++			pageMarginTop: _csDocStyle.marginTop || 0
+ 		});
+-		this._documentSkeleton.getViewModel().getDataModel().updateDocumentDataPageSize(this.width, Infinity);
++		// C10 — shrink page width by lIns + rIns (same trick as _initialProps).
++		const _c10MLF = _csDocStyle.marginLeft || 0;
++		const _c10MRF = _csDocStyle.marginRight || 0;
++		const _c10InnerWF = Math.max(0, this.width - _c10MLF - _c10MRF);
++		this._documentSkeleton.getViewModel().getDataModel().updateDocumentDataPageSize(_c10InnerWF, Infinity);
+ 		this._documentSkeleton.calculate();
+ 	}
+ 	/**
+@@ -21330,6 +21439,15 @@ var FontAndBaseLine = class extends docExtension {
+ 			ctx.rotate(Math.PI / 2);
+ 			ctx.translate(-width / 2, (aba + abd) / 2 - abd);
+ 			ctx.fillText(content, 0, 0);
++			// B15 — text-glyph outline (IStyleBase.tol) stroke pass.
++			const tolV = glyph && glyph.ts && glyph.ts.tol;
++			if (tolV) {
++				ctx.save();
++				if (tolV.color && tolV.color.rgb) ctx.strokeStyle = tolV.color.rgb;
++				ctx.lineWidth = typeof tolV.weight === "number" ? ptToPixel(tolV.weight) : 1;
++				ctx.strokeText(content, 0, 0);
++				ctx.restore();
++			}
+ 			ctx.restore();
+ 		} else {
+ 			const CHECKED_GLYPH = "☑";
+@@ -21360,6 +21478,15 @@ var FontAndBaseLine = class extends docExtension {
+ 					y_offset = -(glyph.width - fontHeight) / 2;
+ 				}
+ 				ctx.fillText(content, spanPointWithFont.x + x_offset, spanPointWithFont.y + y_offset);
++				// B15 — text-glyph outline (IStyleBase.tol) stroke pass.
++				const tolN = glyph && glyph.ts && glyph.ts.tol;
++				if (tolN) {
++					ctx.save();
++					if (tolN.color && tolN.color.rgb) ctx.strokeStyle = tolN.color.rgb;
++					ctx.lineWidth = typeof tolN.weight === "number" ? ptToPixel(tolN.weight) : 1;
++					ctx.strokeText(content, spanPointWithFont.x + x_offset, spanPointWithFont.y + y_offset);
++					ctx.restore();
++				}
+ 			}
+ 		}
+ 	}
+@@ -24644,7 +24771,8 @@ var InputManager = class InputManager extends _univerjs_core.Disposable {
+ 	_onMouseWheel(evt) {
+ 		const currentObject = this._getObjectAtPos(evt.offsetX, evt.offsetY);
+ 		const isStop = currentObject === null || currentObject === void 0 ? void 0 : currentObject.triggerMouseWheel(evt);
+-		this._scene.getMainViewport().onMouseWheel$.emitEvent(evt);
++		const viewportMain = this._scene.getMainViewport();
++		if (viewportMain) viewportMain.onMouseWheel$.emitEvent(evt);
+ 		if (!isStop && this._shouldDispatchEventToScene(currentObject)) this._scene.onMouseWheel$.emitEvent(evt);
+ 	}
+ 	_onKeyDown(evt) {
+@@ -25216,8 +25344,21 @@ var Transformer = class extends _univerjs_core.Disposable {
+ 				});
+ 			}
+ 			this._moveBufferSkip = false;
++			const dragStartX = evtOffsetX;
++			const dragStartY = evtOffsetY;
+ 			const scenePointerMoveSub = scene.onPointerMove$.subscribeEvent((moveEvt) => {
+-				const { offsetX: moveOffsetX, offsetY: moveOffsetY } = moveEvt;
++				let { offsetX: moveOffsetX, offsetY: moveOffsetY } = moveEvt;
++				// Shift+drag locks the move to whichever axis the pointer
++				// has moved farther along (PowerPoint / Figma convention).
++				if (moveEvt.shiftKey && !isCropper) {
++					const dx = moveOffsetX - dragStartX;
++					const dy = moveOffsetY - dragStartY;
++					if (Math.abs(dx) > Math.abs(dy)) {
++						moveOffsetY = dragStartY;
++					} else {
++						moveOffsetX = dragStartX;
++					}
++				}
+ 				this._moving(moveOffsetX, moveOffsetY, scrollTimer, isCropper);
+ 				!isCropper && this._clearControlMap();
+ 				scrollTimer.scrolling(moveOffsetX, moveOffsetY, () => {
+@@ -25631,9 +25772,10 @@ var Transformer = class extends _univerjs_core.Disposable {
+ 			this._moveBufferSkip = false;
+ 			this._topScenePointerMoveSub = topScene.onPointerMove$.subscribeEvent((moveEvt) => {
+ 				const { offsetX: moveOffsetX, offsetY: moveOffsetY } = moveEvt;
+-				this._anchorMoving(type, moveOffsetX, moveOffsetY, scrollTimer, keepRatio, isCropper, applyObject);
++				const ratio = moveEvt.shiftKey ? true : false;
++				this._anchorMoving(type, moveOffsetX, moveOffsetY, scrollTimer, ratio, isCropper, applyObject);
+ 				scrollTimer.scrolling(moveOffsetX, moveOffsetY, () => {
+-					this._anchorMoving(type, moveOffsetX, moveOffsetY, scrollTimer, keepRatio, isCropper, applyObject);
++					this._anchorMoving(type, moveOffsetX, moveOffsetY, scrollTimer, ratio, isCropper, applyObject);
+ 				});
+ 				topScene.setCursor(cursor);
+ 			});
+@@ -26238,7 +26380,7 @@ var Transformer = class extends _univerjs_core.Disposable {
+ 		const { isCropper } = this._getConfig(applyObject);
+ 		const targetObject = this._findGroupObject(applyObject);
+ 		if (this._selectedObjectMap.has(targetObject.oKey)) return;
+-		if (!evt.ctrlKey || SINGLE_ACTIVE_OBJECT_TYPE_MAP.has(targetObject.objectType)) {
++		if ((!evt.ctrlKey && !evt.shiftKey && !evt.metaKey) || SINGLE_ACTIVE_OBJECT_TYPE_MAP.has(targetObject.objectType)) {
+ 			this._selectedObjectMap.clear();
+ 			this._clearControlMap();
+ 		}
+diff --git a/lib/es/index.js b/lib/es/index.js
+index 9262f4632f717ab30dda35b7f68b0f65d7e32ea7..fa8cd72577c0a27eda30c6db66cad5caac905bb1 100644
+--- a/lib/es/index.js
++++ b/lib/es/index.js
+@@ -12619,6 +12619,13 @@ function _createSkeletonWordOrLetter(glyphType, content, config, glyphWidth, gly
+ 		width += delta;
+ 		xOffset += delta;
+ 	}
++	// B14 — letter spacing from IStyleBase.spc (pt). Adds to glyph
++	// advance width so downstream line-wrap / justification / glyph
++	// positioning all see the shaped width. Positive widens, negative
++	// tightens; zero / undefined leaves the glyph untouched.
++	if (textStyle && typeof textStyle.spc === "number" && textStyle.spc !== 0) {
++		width += ptToPixel(textStyle.spc);
++	}
+ 	return {
+ 		content,
+ 		ts: textStyle,
+@@ -14348,6 +14355,17 @@ function getFontCreateConfig(index, viewModel, paragraphNode, sectionBreakConfig
+ 		...customRangeStyle,
+ 		...bulletTextStyle
+ 	};
++	// C13 — apply `<a:normAutofit fontScale>` at render-time. The
++	// slides importer stores the fraction on
++	// `documentStyle.renderConfig.fontScale` instead of multiplying
++	// each run's `fs` at import (which would double-shrink on
++	// re-import). Multiply once here so the shrunk size flows through
++	// every downstream consumer (skeleton layout, line wrap, glyph
++	// positioning).
++	const _c13FontScale = renderConfig && renderConfig.fontScale;
++	if (typeof _c13FontScale === "number" && _c13FontScale !== 1 && _c13FontScale > 0 && typeof textStyle.fs === "number") {
++		textStyle = { ...textStyle, fs: Math.round(textStyle.fs * _c13FontScale * 10) / 10 };
++	}
+ 	const result = {
+ 		fontStyle: getFontStyleString(textStyle),
+ 		textStyle: {
+@@ -19626,6 +19644,24 @@ var Image$1 = class extends Shape {
+ 		const centerY = realTop + realHeight / 2;
+ 		mainCtx.transform(m[0], m[1], m[2], m[3], centerX, centerY);
+ 		if (this.opacity !== 1) mainCtx.globalAlpha = this.opacity;
++		// Casual Slides patch — apply shadow / glow + CSS filter (blur,
++		// brightness, contrast) on the Image draw call. Image.render()
++		// upstream ignores the shadow* props inherited from Shape (the
++		// shape's _renderFill / _renderStroke path is where shadow gets
++		// committed to ctx, and Image overrides _draw instead). Same goes
++		// for `filter` — there's no upstream code path that pushes it
++		// through. We honour both here so the slides ImageAdaptor can
++		// pass them down without an out-of-band rendering pass. mainCtx
++		// is already inside save()/restore(), so we don't have to undo.
++		if (this.shadowEnabled) {
++			if (this.shadowColor) mainCtx.shadowColor = this.shadowColor;
++			if (typeof this.shadowBlur === "number") mainCtx.shadowBlur = this.shadowBlur;
++			if (typeof this.shadowOffsetX === "number") mainCtx.shadowOffsetX = this.shadowOffsetX;
++			if (typeof this.shadowOffsetY === "number") mainCtx.shadowOffsetY = this.shadowOffsetY;
++		}
++		if (this._props && this._props.filter) {
++			mainCtx.filter = this._props.filter;
++		}
+ 		this._draw(mainCtx, void 0, realWidth, realHeight);
+ 		mainCtx.restore();
+ 		this.makeDirty(false);
+@@ -19761,8 +19797,12 @@ var Path = class Path extends Shape {
+ 				else fixX = this.width - preWidth;
+ 				if (!preHeight) fixY = 0;
+ 				else fixY = this.height - preHeight;
+-				const increaseScaleX = fixX / width;
+-				const increaseScaleY = fixY / height;
++				// Casual Slides patch — same 0-extent guard as
++				// _setFixBoundingBox. Zero width / height in the path
++				// data bbox (horizontal / vertical lines) blew up
++				// scale to Infinity here too.
++				const increaseScaleX = width === 0 ? 0 : fixX / width;
++				const increaseScaleY = height === 0 ? 0 : fixY / height;
+ 				this.scaleX += increaseScaleX;
+ 				this.scaleY += increaseScaleY;
+ 				this.left = this.left - left * increaseScaleX;
+@@ -20345,14 +20385,24 @@ var Path = class Path extends Shape {
+ 	}
+ 	_setFixBoundingBox() {
+ 		const { left, top, width, height } = this._getSelfRect();
+-		const fixScaleX = this.width / width;
+-		const fixScaleY = this.height / height;
++		// Casual Slides patch — guard against width/height = 0 in the path
++		// data bbox. A horizontal line ("M 0 2 L 655 2") has 0 vertical
++		// extent; the original code computed `this.height / 0 = Infinity`
++		// for scaleY and the canvas silently failed to render. Now we
++		// keep scale at 1 for the degenerate axis and DO NOT collapse
++		// this.width / this.height to the path bbox — those came from
++		// the caller as the authored frame and need to drive the bbox
++		// for clipping / hit-testing.
++		const _csW = width === 0 ? this.width || 1 : width;
++		const _csH = height === 0 ? this.height || 1 : height;
++		const fixScaleX = this.width / _csW;
++		const fixScaleY = this.height / _csH;
+ 		this.left = this.left - left * fixScaleX;
+ 		this.top = this.top - top * fixScaleY;
+ 		this.scaleX = fixScaleX;
+ 		this.scaleY = fixScaleY;
+-		this.width = width;
+-		this.height = height;
++		this.width = _csW;
++		this.height = _csH;
+ 		this._setTransForm();
+ 	}
+ 	_getSelfRect() {
+@@ -20604,21 +20654,46 @@ var RichText = class extends BaseObject {
+ 		const docModel = this.documentModel = new DocumentDataModel(this._documentData);
+ 		const docViewModel = new DocumentViewModel(docModel);
+ 		this._documentSkeleton = DocumentSkeleton.create(docViewModel, this._localeService);
++		// Casual Slides patch — honour documentStyle.margin* as text-frame
++		// insets instead of hardcoding zero. PowerPoint's <a:bodyPr> lIns
++		// / tIns / rIns / bIns flow through our parser into
++		// documentStyle.marginLeft / marginTop / marginRight / marginBottom.
++		// Without this read the text always butts up against the frame's
++		// upper-left edge regardless of the inset.
++		const _csDocStyle = (this._documentData && this._documentData.documentStyle) || {};
+ 		this._documents = new Documents(`${this.oKey}_DOCUMENTS`, this._documentSkeleton, {
+-			pageMarginLeft: 0,
+-			pageMarginTop: 0
++			pageMarginLeft: _csDocStyle.marginLeft || 0,
++			pageMarginTop: _csDocStyle.marginTop || 0
+ 		});
+ 		this._initialProps(props);
+ 		this.onTransformChange$.subscribeEvent((changeState) => {
+ 			const { type } = changeState;
+ 			if (type === 1 || type === 5) {
+-				docModel.updateDocumentDataPageSize(this.width);
++				// C10 — shrink page width by lIns + rIns so right inset
++				// is implicit (same trick as _initialProps).
++				const _c10StyleR = (this._documentData && this._documentData.documentStyle) || {};
++				const _c10MLR = _c10StyleR.marginLeft || 0;
++				const _c10MRR = _c10StyleR.marginRight || 0;
++				const _c10InnerWR = Math.max(0, this.width - _c10MLR - _c10MRR);
++				docModel.updateDocumentDataPageSize(_c10InnerWR);
+ 				this._documentSkeleton.makeDirty(true);
+ 				this._documentSkeleton.calculate();
+-				const size = this.getDocsSkeletonPageSize();
+-				this.height = (size === null || size === void 0 ? void 0 : size.height) || this.height;
++				// Casual Slides patch — DO NOT auto-grow `this.height` to the
++				// laid-out text size. The original behaviour assigned the
++				// rendered text height back to the frame, which made imported
++				// pptx text frames silently expand past their authored
++				// bounding box ("text out of canvas box" — slides authored
++				// with autofit / clip semantics expect the frame to stay put
++				// while text overflows or shrinks). Keeping the original
++				// height respects the imported frame; autofit (font shrink)
++				// is parsed by the importer as a fs multiplier on each run.
+ 				this._setTransForm();
+ 				this.refreshDocumentByDocData();
++				// Casual Slides patch — keep inner Documents.height in
++				// sync with the outer RichText.height on every resize.
++				if (this._documents) {
++					this._documents.transformByState({ width: this.width, height: this.height });
++				}
+ 			}
+ 		});
+ 	}
+@@ -20680,6 +20755,27 @@ var RichText = class extends BaseObject {
+ 		const m = this.transform.getMatrix();
+ 		mainCtx.save();
+ 		mainCtx.transform(m[0], m[1], m[2], m[3], m[4], m[5]);
++		// C12 — arbitrary-angle body rotation. Glyph extension already
++		// handles 90°/270° per-glyph; rotate the frame here for all
++		// other angles.
++		const docRenderConfig = (() => {
++			try {
++				const docs = this._documents;
++				const sk = docs && typeof docs.getDocsSkeleton === "function" ? docs.getDocsSkeleton() : null;
++				const vm = sk && typeof sk.getViewModel === "function" ? sk.getViewModel() : null;
++				const dm = vm && typeof vm.getDataModel === "function" ? vm.getDataModel() : null;
++				const snap = dm && typeof dm.getSnapshot === "function" ? dm.getSnapshot() : null;
++				return snap && snap.documentStyle && snap.documentStyle.renderConfig;
++			} catch (_e) { return null; }
++		})();
++		const centerAngle = docRenderConfig && docRenderConfig.centerAngle;
++		if (typeof centerAngle === "number" && centerAngle !== 0 && centerAngle % 90 !== 0) {
++			const cx = this.width / 2;
++			const cy = this.height / 2;
++			mainCtx.translate(cx, cy);
++			mainCtx.rotate(centerAngle * Math.PI / 180);
++			mainCtx.translate(-cx, -cy);
++		}
+ 		this._draw(mainCtx);
+ 		mainCtx.restore();
+ 		this.makeDirty(false);
+@@ -20699,11 +20795,24 @@ var RichText = class extends BaseObject {
+ 		this._documents.render(ctx);
+ 	}
+ 	_convertToDocumentData(text) {
+-		const contentLength = text.length;
++		// Casual Slides patch — translate plain `\n` into Univer's paragraph
++		// separator (`\r`) and emit a `paragraphs[]` index. The upstream
++		// conversion left `\n` in the dataStream with no paragraphs entries,
++		// which the DocumentSkeleton interpreted as page-breaks with
++		// null/0-px dimensions; multi-line plain-text RichText (the default
++		// deck's bulleted body, anything inserted via slide.command.add-text
++		// with embedded newlines) silently rendered to nothing.
++		const _csText = String(text || "").replace(/\n/g, "\r");
++		const _csContentLength = _csText.length;
++		const _csParagraphs = [];
++		for (let _i = 0; _i < _csContentLength; _i++) {
++			if (_csText[_i] === "\r") _csParagraphs.push({ startIndex: _i });
++		}
++		_csParagraphs.push({ startIndex: _csContentLength });
+ 		return {
+ 			id: "d",
+ 			body: {
+-				dataStream: `${text}${DEFAULT_EMPTY_DOCUMENT_VALUE}`,
++				dataStream: `${_csText}${DEFAULT_EMPTY_DOCUMENT_VALUE}`,
+ 				textRuns: [{
+ 					ts: {
+ 						fs: this._fs || 14,
+@@ -20718,8 +20827,9 @@ var RichText = class extends BaseObject {
+ 						cl: this._cl
+ 					},
+ 					st: 0,
+-					ed: contentLength
+-				}]
++					ed: _csContentLength
++				}],
++				paragraphs: _csParagraphs
+ 			},
+ 			documentStyle: { pageSize: {
+ 				width: Number.POSITIVE_INFINITY,
+@@ -20728,16 +20838,52 @@ var RichText = class extends BaseObject {
+ 		};
+ 	}
+ 	_initialProps(props) {
+-		this._documentSkeleton.getViewModel().getDataModel().updateDocumentDataPageSize(props === null || props === void 0 ? void 0 : props.width, props === null || props === void 0 ? void 0 : props.height);
++		// Casual Slides patch — use Infinity for the docs page-height so
++		// the docs engine lays out all text on a SINGLE page rather than
++		// paginating across multiple pages when the text exceeds the
++		// frame height. Pagination produced visible inter-page gaps that
++		// LOOKED like 2-3x line spacing in the imported slides. With
++		// Infinity, lines stay tightly spaced; any frame-height overflow
++		// is the renderer's responsibility (clip / autofit) rather than
++		// the docs engine artificially spreading lines.
++		//
++		// C10 right inset — IPageMarginLayout in the docs engine only
++		// supports pageMarginLeft / pageMarginTop. To honour
++		// `<a:bodyPr rIns>` we SHRINK the docs page width by lIns + rIns
++		// so the inset is implicit (content lays out in the inner box).
++		// bIns gets the same treatment indirectly because we already use
++		// Infinity for height + don't extend the canvas paint beyond the
++		// frame bbox.
++		const _c10Style = (this._documentData && this._documentData.documentStyle) || {};
++		const _c10ML = _c10Style.marginLeft || 0;
++		const _c10MR = _c10Style.marginRight || 0;
++		const _c10PropsW = (props === null || props === void 0 ? void 0 : props.width) || 0;
++		const _c10InnerW = Math.max(0, _c10PropsW - _c10ML - _c10MR);
++		this._documentSkeleton.getViewModel().getDataModel().updateDocumentDataPageSize(_c10PropsW > 0 ? _c10InnerW : (props === null || props === void 0 ? void 0 : props.width), Infinity);
+ 		this._documentSkeleton.calculate();
+ 		const contentSize = this.getDocsSkeletonPageSize();
++		// Casual Slides patch — respect the caller's authored width / height
++		// when provided. The original behaviour ALWAYS used the laid-out
++		// text dimensions, which made imported pptx frames silently expand
++		// to whatever the rendered text needed ("text out of canvas box").
++		// Slide text frames have authoritative bounds from the source deck;
++		// the renderer should keep them.
++		const _csOuterW = ((props === null || props === void 0 ? void 0 : props.width)) || ((contentSize === null || contentSize === void 0 ? void 0 : contentSize.width) || 0);
++		const _csOuterH = ((props === null || props === void 0 ? void 0 : props.height)) || ((contentSize === null || contentSize === void 0 ? void 0 : contentSize.height) || 0);
+ 		this.transformByState({
+-			width: (contentSize === null || contentSize === void 0 ? void 0 : contentSize.width) || 0,
+-			height: (contentSize === null || contentSize === void 0 ? void 0 : contentSize.height) || 0,
++			width: _csOuterW,
++			height: _csOuterH,
+ 			left: (props === null || props === void 0 ? void 0 : props.left) || 0,
+ 			top: (props === null || props === void 0 ? void 0 : props.top) || 0,
+ 			angle: props === null || props === void 0 ? void 0 : props.angle
+ 		});
++		// Casual Slides patch — propagate authored frame dimensions to
++		// the inner Documents so the docs anchor handler reads a
++		// non-zero height. Without this, MIDDLE-anchored text gets
++		// `(0 - pageHeight) / 2` and renders above the frame top.
++		if (this._documents) {
++			this._documents.transformByState({ width: _csOuterW, height: _csOuterH });
++		}
+ 		this.setProps(props);
+ 		this.makeDirty(true);
+ 	}
+@@ -20747,11 +20893,17 @@ var RichText = class extends BaseObject {
+ 	refreshDocumentByDocData() {
+ 		const docViewModel = new DocumentViewModel(this.documentModel = new DocumentDataModel(this._documentData));
+ 		this._documentSkeleton = DocumentSkeleton.create(docViewModel, this._localeService);
++		// Casual Slides patch — same margin read as initial construction.
++		const _csDocStyle = (this._documentData && this._documentData.documentStyle) || {};
+ 		this._documents = new Documents(`${this.oKey}_DOCUMENTS`, this._documentSkeleton, {
+-			pageMarginLeft: 0,
+-			pageMarginTop: 0
++			pageMarginLeft: _csDocStyle.marginLeft || 0,
++			pageMarginTop: _csDocStyle.marginTop || 0
+ 		});
+-		this._documentSkeleton.getViewModel().getDataModel().updateDocumentDataPageSize(this.width, Infinity);
++		// C10 — shrink page width by lIns + rIns (same trick as _initialProps).
++		const _c10MLF = _csDocStyle.marginLeft || 0;
++		const _c10MRF = _csDocStyle.marginRight || 0;
++		const _c10InnerWF = Math.max(0, this.width - _c10MLF - _c10MRF);
++		this._documentSkeleton.getViewModel().getDataModel().updateDocumentDataPageSize(_c10InnerWF, Infinity);
+ 		this._documentSkeleton.calculate();
+ 	}
+ 	/**
+@@ -21301,6 +21453,15 @@ var FontAndBaseLine = class extends docExtension {
+ 			ctx.rotate(Math.PI / 2);
+ 			ctx.translate(-width / 2, (aba + abd) / 2 - abd);
+ 			ctx.fillText(content, 0, 0);
++			// B15 — text-glyph outline (IStyleBase.tol) stroke pass.
++			const tolV = glyph && glyph.ts && glyph.ts.tol;
++			if (tolV) {
++				ctx.save();
++				if (tolV.color && tolV.color.rgb) ctx.strokeStyle = tolV.color.rgb;
++				ctx.lineWidth = typeof tolV.weight === "number" ? ptToPixel(tolV.weight) : 1;
++				ctx.strokeText(content, 0, 0);
++				ctx.restore();
++			}
+ 			ctx.restore();
+ 		} else {
+ 			const CHECKED_GLYPH = "☑";
+@@ -21331,6 +21492,15 @@ var FontAndBaseLine = class extends docExtension {
+ 					y_offset = -(glyph.width - fontHeight) / 2;
+ 				}
+ 				ctx.fillText(content, spanPointWithFont.x + x_offset, spanPointWithFont.y + y_offset);
++				// B15 — text-glyph outline (IStyleBase.tol) stroke pass.
++				const tolN = glyph && glyph.ts && glyph.ts.tol;
++				if (tolN) {
++					ctx.save();
++					if (tolN.color && tolN.color.rgb) ctx.strokeStyle = tolN.color.rgb;
++					ctx.lineWidth = typeof tolN.weight === "number" ? ptToPixel(tolN.weight) : 1;
++					ctx.strokeText(content, spanPointWithFont.x + x_offset, spanPointWithFont.y + y_offset);
++					ctx.restore();
++				}
+ 			}
+ 		}
+ 	}
+@@ -24615,7 +24785,8 @@ var InputManager = class InputManager extends Disposable {
+ 	_onMouseWheel(evt) {
+ 		const currentObject = this._getObjectAtPos(evt.offsetX, evt.offsetY);
+ 		const isStop = currentObject === null || currentObject === void 0 ? void 0 : currentObject.triggerMouseWheel(evt);
+-		this._scene.getMainViewport().onMouseWheel$.emitEvent(evt);
++		const viewportMain = this._scene.getMainViewport();
++		if (viewportMain) viewportMain.onMouseWheel$.emitEvent(evt);
+ 		if (!isStop && this._shouldDispatchEventToScene(currentObject)) this._scene.onMouseWheel$.emitEvent(evt);
+ 	}
+ 	_onKeyDown(evt) {
+@@ -25187,8 +25358,21 @@ var Transformer = class extends Disposable {
+ 				});
+ 			}
+ 			this._moveBufferSkip = false;
++			const dragStartX = evtOffsetX;
++			const dragStartY = evtOffsetY;
+ 			const scenePointerMoveSub = scene.onPointerMove$.subscribeEvent((moveEvt) => {
+-				const { offsetX: moveOffsetX, offsetY: moveOffsetY } = moveEvt;
++				let { offsetX: moveOffsetX, offsetY: moveOffsetY } = moveEvt;
++				// Shift+drag locks the move to whichever axis the pointer
++				// has moved farther along (PowerPoint / Figma convention).
++				if (moveEvt.shiftKey && !isCropper) {
++					const dx = moveOffsetX - dragStartX;
++					const dy = moveOffsetY - dragStartY;
++					if (Math.abs(dx) > Math.abs(dy)) {
++						moveOffsetY = dragStartY;
++					} else {
++						moveOffsetX = dragStartX;
++					}
++				}
+ 				this._moving(moveOffsetX, moveOffsetY, scrollTimer, isCropper);
+ 				!isCropper && this._clearControlMap();
+ 				scrollTimer.scrolling(moveOffsetX, moveOffsetY, () => {
+@@ -25602,9 +25786,10 @@ var Transformer = class extends Disposable {
+ 			this._moveBufferSkip = false;
+ 			this._topScenePointerMoveSub = topScene.onPointerMove$.subscribeEvent((moveEvt) => {
+ 				const { offsetX: moveOffsetX, offsetY: moveOffsetY } = moveEvt;
+-				this._anchorMoving(type, moveOffsetX, moveOffsetY, scrollTimer, keepRatio, isCropper, applyObject);
++				const ratio = moveEvt.shiftKey ? true : false;
++				this._anchorMoving(type, moveOffsetX, moveOffsetY, scrollTimer, ratio, isCropper, applyObject);
+ 				scrollTimer.scrolling(moveOffsetX, moveOffsetY, () => {
+-					this._anchorMoving(type, moveOffsetX, moveOffsetY, scrollTimer, keepRatio, isCropper, applyObject);
++					this._anchorMoving(type, moveOffsetX, moveOffsetY, scrollTimer, ratio, isCropper, applyObject);
+ 				});
+ 				topScene.setCursor(cursor);
+ 			});
+@@ -26209,7 +26394,7 @@ var Transformer = class extends Disposable {
+ 		const { isCropper } = this._getConfig(applyObject);
+ 		const targetObject = this._findGroupObject(applyObject);
+ 		if (this._selectedObjectMap.has(targetObject.oKey)) return;
+-		if (!evt.ctrlKey || SINGLE_ACTIVE_OBJECT_TYPE_MAP.has(targetObject.objectType)) {
++		if ((!evt.ctrlKey && !evt.shiftKey && !evt.metaKey) || SINGLE_ACTIVE_OBJECT_TYPE_MAP.has(targetObject.objectType)) {
+ 			this._selectedObjectMap.clear();
+ 			this._clearControlMap();
+ 		}

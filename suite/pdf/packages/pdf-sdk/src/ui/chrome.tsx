@@ -1,0 +1,3846 @@
+// Copyright (c) 2026 Casual Office
+// SPDX-License-Identifier: Apache-2.0
+
+/**
+ * Viewer chrome — a professional PDF-editor layout (Acrobat/Nutrient-style):
+ *   • left tool rail (navigation toggles + annotation tools + undo/redo)
+ *   • max document canvas in the center
+ *   • right contextual properties panel (color / width / opacity / delete)
+ *   • a floating bottom bar for page nav + zoom + fit + view options
+ *
+ * Mode is owned by the host (app top bar) and passed in; tools + properties show
+ * only in Edit/Suggest. Every control is wired to a verified EmbedPDF plugin
+ * hook and renders inside the <EmbedPDF> provider (see CasualPdf.tsx).
+ */
+import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode, type MutableRefObject } from 'react';
+import { createPortal } from 'react-dom';
+import { Viewport } from '@embedpdf/plugin-viewport/react';
+import { Scroller } from '@embedpdf/plugin-scroll/react';
+import { RenderLayer } from '@embedpdf/plugin-render/react';
+import { useZoom, ZoomMode, ZoomGestureWrapper } from '@embedpdf/plugin-zoom/react';
+import { useScroll, useScrollCapability, ScrollStrategy } from '@embedpdf/plugin-scroll/react';
+import { useRotate } from '@embedpdf/plugin-rotate/react';
+import { useSpread, SpreadMode } from '@embedpdf/plugin-spread/react';
+import { useFullscreen } from '@embedpdf/plugin-fullscreen/react';
+import { usePan } from '@embedpdf/plugin-pan/react';
+import { useSearch, SearchLayer } from '@embedpdf/plugin-search/react';
+import { SelectionLayer, useSelectionCapability } from '@embedpdf/plugin-selection/react';
+import { ThumbnailsPane, ThumbImg } from '@embedpdf/plugin-thumbnail/react';
+import { useBookmarkCapability } from '@embedpdf/plugin-bookmark/react';
+import { useDocumentManagerCapability } from '@embedpdf/plugin-document-manager/react';
+import { PagePointerProvider, usePointerHandlers } from '@embedpdf/plugin-interaction-manager/react';
+import {
+  useAnnotation,
+  useAnnotationCapability,
+  AnnotationLayer,
+  AnnotationRendererProvider,
+} from '@embedpdf/plugin-annotation/react';
+import { LockModeType } from '@embedpdf/plugin-annotation';
+import { Rotation } from '@embedpdf/models';
+import { FormRendererRegistration, formRenderers, useFormCapability } from '@embedpdf/plugin-form/react';
+import {
+  SignatureDrawPad,
+  SignatureTypePad,
+  useSignatureCapability,
+  useActivePlacement,
+  type SignatureDrawPadHandle,
+  type SignatureTypePadHandle,
+  type SignatureInkFieldDefinition,
+  type SignatureStampFieldDefinition,
+} from '@embedpdf/plugin-signature/react';
+import { useHistoryCapability } from '@embedpdf/plugin-history/react';
+import { useExportCapability } from '@embedpdf/plugin-export/react';
+import { useRenderCapability } from '@embedpdf/plugin-render/react';
+import { IconButton } from './IconButton';
+import { Icon, type IconName } from './icons';
+import type { Mode, CasualPdfApi, OutlineNode, CollabConfig, Identity } from '../modes';
+import { useCollab } from '../use-collab';
+import { useComments, type CommentsState } from '../use-comments';
+import { useSigning, type SigningState, type NewRecipient } from '../use-signing';
+import { canSign, type SigningEnvelope, type EnvelopeStatus, type Signer } from '../signing';
+import type { CommentThread } from '../comments';
+import type { AnnotationCapabilityLike } from '../collab-binding';
+import type { FormCapabilityLike } from '../form-binding';
+import { initials, type Peer } from '../presence';
+import type { AnnotationData } from '../model';
+import type { PdfTextRun } from '../textedit-pdfium';
+import './viewer.css';
+
+const ROOT_ID = 'cpdf-root';
+
+type LeftPanel = 'thumbs' | 'outline' | 'comments' | 'signatures' | null;
+
+interface Bookmark {
+  title: string;
+  target?: { type: string; destination?: { pageIndex: number } };
+  children?: Bookmark[];
+}
+
+/** Annotation tools (EmbedPDF tool ids) + a one-key shortcut. */
+const TOOLS: { id: string; icon: IconName; label: string; key: string }[] = [
+  { id: 'highlight', icon: 'marker', label: 'Highlight', key: 'h' },
+  { id: 'underline', icon: 'underline', label: 'Underline', key: 'u' },
+  { id: 'strikeout', icon: 'strikeout', label: 'Strikethrough', key: 'k' },
+  { id: 'squiggly', icon: 'squiggly', label: 'Squiggly', key: 'g' },
+  { id: 'ink', icon: 'ink', label: 'Draw', key: 'd' },
+  { id: 'freeText', icon: 'text-tool', label: 'Text box', key: 't' },
+  { id: 'textComment', icon: 'note', label: 'Comment', key: 'n' },
+  { id: 'square', icon: 'square', label: 'Rectangle', key: 'r' },
+  { id: 'circle', icon: 'circle', label: 'Ellipse', key: 'o' },
+  { id: 'lineArrow', icon: 'arrow', label: 'Arrow', key: 'a' },
+];
+
+const PALETTE = ['#1f2430', '#e8453c', '#f5a623', '#2bb673', '#2d8cff', '#8b5cf6'];
+const STROKE_WIDTHS = [1, 2, 4, 6];
+const OPACITIES = [1, 0.75, 0.5, 0.25];
+const FONT_SIZES = [12, 16, 24, 32];
+// PdfStandardFont enum values: Helvetica=4, Times_Roman=8, Courier=0.
+const FONT_FAMILIES: { label: string; value: number }[] = [
+  { label: 'Sans', value: 4 },
+  { label: 'Serif', value: 8 },
+  { label: 'Mono', value: 0 },
+];
+// PdfTextAlignment: Left=0, Center=1, Right=2.
+const TEXT_ALIGNS: { icon: IconName; value: number; label: string }[] = [
+  { icon: 'align-left', value: 0, label: 'Align left' },
+  { icon: 'align-center', value: 1, label: 'Align center' },
+  { icon: 'align-right', value: 2, label: 'Align right' },
+];
+const STROKE_TOOLS = new Set(['ink', 'inkHighlighter', 'line', 'lineArrow', 'square', 'circle', 'polygon', 'polyline']);
+const TEXT_TOOLS = new Set(['freeText', 'freeTextCallout']);
+// Text-markup annotations render their color from `strokeColor`, not `color`.
+const MARKUP_TOOLS = new Set(['highlight', 'underline', 'strikeout', 'squiggly']);
+// One-shot tools: revert to Select after placing one (so it's immediately
+// selected/adjustable). Ink + text-markup stay active for repeated use.
+const REVERT_AFTER_CREATE = new Set(['square', 'circle', 'line', 'lineArrow', 'polygon', 'polyline', 'freeText', 'freeTextCallout', 'textComment', 'stamp']);
+const patchFor = (toolId: string | undefined, color: string) =>
+  toolId && (STROKE_TOOLS.has(toolId) || MARKUP_TOOLS.has(toolId))
+    ? { strokeColor: color }
+    : toolId && TEXT_TOOLS.has(toolId)
+      ? { fontColor: color }
+      : { color };
+const norm = (c?: string) => (c ?? '').toLowerCase();
+const genId = () =>
+  typeof crypto !== 'undefined' && crypto.randomUUID
+    ? crypto.randomUUID()
+    : `cpdf-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+// PdfAnnotationSubtype values for text markups (HIGHLIGHT=9, UNDERLINE=10, SQUIGGLY=11, STRIKEOUT=12).
+const MARKUP_SUBTYPE: Record<string, number> = { highlight: 9, underline: 10, squiggly: 11, strikeout: 12 };
+
+type AnnoRect = { origin: { x: number; y: number }; size: { width: number; height: number } };
+const ptInRect = (p: { x: number; y: number }, r?: AnnoRect) =>
+  !!r && p.x >= r.origin.x && p.x <= r.origin.x + r.size.width && p.y >= r.origin.y && p.y <= r.origin.y + r.size.height;
+const boxFromPts = (a: { x: number; y: number }, b: { x: number; y: number }) => ({
+  x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), w: Math.abs(a.x - b.x), h: Math.abs(a.y - b.y),
+});
+const boxHitsRect = (r: { x: number; y: number; w: number; h: number }, o?: AnnoRect) =>
+  !!o && r.x < o.origin.x + o.size.width && r.x + r.w > o.origin.x && r.y < o.origin.y + o.size.height && r.y + r.h > o.origin.y;
+
+/** Select-tool pointer behaviour on a page:
+ *   • click empty space → deselect (EmbedPDF selects on click but never
+ *     deselects on a background click);
+ *   • drag empty space → rubber-band marquee: select every annotation the box
+ *     touches (feeds the existing multi-select / bulk-style/-delete machinery).
+ *
+ *  A drag that begins on a glyph is a *text* selection, not a marquee — we watch
+ *  for a text selection forming (getFormattedSelection becomes non-empty) and
+ *  bow out, so marquee and the select-text→highlight/copy/redact flow coexist.
+ *  Registered on the default 'pointerMode' (Select tool); drawing tools are
+ *  unaffected. */
+function MarqueeSelect({ documentId, pageIndex }: { documentId: string; pageIndex: number }) {
+  const { provides: annoApi } = useAnnotation(documentId);
+  const { provides: selectionCap } = useSelectionCapability();
+  const { provides: docCap } = useDocumentManagerCapability();
+  const { register } = usePointerHandlers({ modeId: 'pointerMode', pageIndex, documentId });
+  const start = useRef<{ x: number; y: number } | null>(null);
+  const textDrag = useRef(false);
+  const moved = useRef(false);
+  const [draft, setDraft] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
+  const annsHere = () => (annoApi?.getAnnotations() ?? []).filter((a) => a.object.pageIndex === pageIndex);
+
+  useEffect(() => {
+    return register({
+      onPointerDown: (pos) => {
+        if (!annoApi) return;
+        // Press on an existing annotation → let the plugin move/select it.
+        if (annsHere().some((a) => ptInRect(pos, a.object.rect))) {
+          start.current = null;
+          return;
+        }
+        annoApi.deselectAnnotation();
+        start.current = { x: pos.x, y: pos.y };
+        textDrag.current = false;
+        moved.current = false;
+        setDraft(null);
+      },
+      onPointerMove: (pos) => {
+        if (!start.current || textDrag.current) return;
+        // A text selection forming means the drag began on glyphs — yield to it.
+        if ((selectionCap?.getFormattedSelection(documentId)?.length ?? 0) > 0) {
+          textDrag.current = true;
+          setDraft(null);
+          return;
+        }
+        const r = boxFromPts(start.current, pos);
+        if (r.w > 1 || r.h > 1) moved.current = true;
+        setDraft(r);
+      },
+      onPointerUp: (pos) => {
+        if (start.current && moved.current && !textDrag.current && annoApi) {
+          const r = boxFromPts(start.current, pos);
+          const ids = annsHere().filter((a) => boxHitsRect(r, a.object.rect)).map((a) => a.object.id);
+          if (ids.length) annoApi.setSelection(ids);
+        }
+        start.current = null;
+        moved.current = false;
+        textDrag.current = false;
+        setDraft(null);
+      },
+    });
+  }, [register, annoApi, selectionCap, documentId, pageIndex]);
+
+  const size = docCap?.getDocument(documentId)?.pages?.[pageIndex]?.size as { width: number; height: number } | undefined;
+  if (!draft || !size) return null;
+  return (
+    <div
+      className="cpdf__marquee"
+      style={{
+        left: `${(draft.x / size.width) * 100}%`,
+        top: `${(draft.y / size.height) * 100}%`,
+        width: `${(draft.w / size.width) * 100}%`,
+        height: `${(draft.h / size.height) * 100}%`,
+      }}
+    />
+  );
+}
+
+/** A picked image awaiting placement: raw bytes + mime + natural aspect. */
+interface PendingImage {
+  data: ArrayBuffer;
+  mimeType: 'image/png' | 'image/jpeg';
+  w: number;
+  h: number;
+}
+
+/** While an image is pending, the next click on a page drops it as a STAMP
+ *  annotation (image baked into the appearance stream → persists on Download).
+ *  Registered on the default Select mode so a plain click places it. */
+function ImagePlacer({
+  documentId,
+  pageIndex,
+  image,
+  onPlaced,
+}: {
+  documentId: string;
+  pageIndex: number;
+  image: PendingImage;
+  onPlaced: () => void;
+}) {
+  const { provides: annoApi } = useAnnotation(documentId);
+  const { register } = usePointerHandlers({ modeId: 'pointerMode', pageIndex, documentId });
+  useEffect(() => {
+    return register({
+      onPointerDown: (pos) => {
+        if (!annoApi) return;
+        // Default display width ~220pt, height by the image's natural aspect.
+        const width = 220;
+        const height = Math.max(24, Math.round(width * (image.h / image.w)));
+        const stamp = {
+          type: 13, // PdfAnnotationSubtype.STAMP
+          id: genId(),
+          pageIndex,
+          rect: { origin: { x: pos.x, y: pos.y }, size: { width, height } },
+        };
+        // The stamp ctx ({ data, mimeType }) resolves to `undefined` on the base
+        // annotation union (the plugin's own type carries it only on the stamp
+        // member), so call through a loosened signature — same pattern the SDK
+        // uses elsewhere for these union-typed plugin calls.
+        (annoApi.createAnnotation as unknown as (p: number, a: unknown, c: unknown) => void)(
+          pageIndex,
+          stamp,
+          { data: image.data, mimeType: image.mimeType },
+        );
+        onPlaced();
+      },
+    });
+  }, [register, annoApi, pageIndex, image, onPlaced]);
+  return null;
+}
+
+/** A marked redaction region in fractional page coordinates (0..1, top-left
+ *  origin) — zoom-independent, so the same mark maps cleanly to the rendered
+ *  image at any scale. */
+interface RedactRect {
+  id: number;
+  pageIndex: number;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+const clamp01 = (n: number) => Math.min(1, Math.max(0, n));
+const pctStyle = (r: { x: number; y: number; w: number; h: number }) => ({
+  left: `${r.x * 100}%`,
+  top: `${r.y * 100}%`,
+  width: `${r.w * 100}%`,
+  height: `${r.h * 100}%`,
+});
+
+/** Drag-to-mark redaction regions on a page. Captures fractional rects from its
+ *  own bounding box (independent of EmbedPDF's pointer/coord system) and draws
+ *  the committed + in-progress marks as red boxes. Each mark has an ✕ button
+ *  (visible on hover/focus) to remove it individually. Applying the marks
+ *  rasterizes + flattens the page (see redact.ts).
+ *
+ *  Fully keyboard-operable (WCAG 2.2): the layer is focusable — Enter/Space adds
+ *  a centered mark and focuses it; a focused mark moves with the arrow keys
+ *  (Shift = larger step), resizes with +/−, and deletes with Delete/Backspace. */
+function RedactionLayer({
+  pageIndex,
+  redactions,
+  onAdd,
+  onUpdate,
+  onRemove,
+}: {
+  pageIndex: number;
+  redactions: RedactRect[];
+  onAdd: (r: Omit<RedactRect, 'id'>) => number;
+  onUpdate: (mark: RedactRect) => void;
+  onRemove: (mark: RedactRect) => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const start = useRef<{ x: number; y: number } | null>(null);
+  const [draft, setDraft] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
+  // Id of a just-created mark to move keyboard focus onto after it renders.
+  const [focusId, setFocusId] = useState<number | null>(null);
+  const frac = (clientX: number, clientY: number) => {
+    const b = ref.current!.getBoundingClientRect();
+    return { x: clamp01((clientX - b.left) / b.width), y: clamp01((clientY - b.top) / b.height) };
+  };
+  const rectFrom = (a: { x: number; y: number }, b: { x: number; y: number }) => ({
+    x: Math.min(a.x, b.x),
+    y: Math.min(a.y, b.y),
+    w: Math.abs(a.x - b.x),
+    h: Math.abs(a.y - b.y),
+  });
+  const mine = redactions.filter((r) => r.pageIndex === pageIndex);
+
+  useEffect(() => {
+    if (focusId == null) return;
+    ref.current?.querySelector<HTMLElement>(`[data-mark-id="${focusId}"]`)?.focus();
+    setFocusId(null);
+  }, [focusId, mine.length]);
+
+  // Keep a mark inside the page and above a minimum size (fractional coords).
+  const clampPos = (p: number, size: number) => Math.min(Math.max(0, p), Math.max(0, 1 - size));
+  const moveMark = (r: RedactRect, dx: number, dy: number): RedactRect => ({
+    ...r, x: clampPos(r.x + dx, r.w), y: clampPos(r.y + dy, r.h),
+  });
+  const resizeMark = (r: RedactRect, d: number): RedactRect => ({
+    ...r,
+    w: Math.min(Math.max(0.01, r.w + d), 1 - r.x),
+    h: Math.min(Math.max(0.01, r.h + d), 1 - r.y),
+  });
+  const onMarkKey = (e: React.KeyboardEvent, r: RedactRect) => {
+    const step = e.shiftKey ? 0.1 : 0.01;
+    switch (e.key) {
+      case 'ArrowLeft': e.preventDefault(); onUpdate(moveMark(r, -step, 0)); break;
+      case 'ArrowRight': e.preventDefault(); onUpdate(moveMark(r, step, 0)); break;
+      case 'ArrowUp': e.preventDefault(); onUpdate(moveMark(r, 0, -step)); break;
+      case 'ArrowDown': e.preventDefault(); onUpdate(moveMark(r, 0, step)); break;
+      case '+': case '=': e.preventDefault(); onUpdate(resizeMark(r, 0.02)); break;
+      case '-': case '_': e.preventDefault(); onUpdate(resizeMark(r, -0.02)); break;
+      case 'Delete': case 'Backspace': e.preventDefault(); onRemove(r); break;
+    }
+  };
+
+  return (
+    <div
+      ref={ref}
+      className="cpdf__redactlayer"
+      tabIndex={0}
+      role="group"
+      aria-label={`Redaction marks, page ${pageIndex + 1}. Press Enter to add a mark. With a mark focused, use arrow keys to move, plus and minus to resize, and Delete to remove.`}
+      onKeyDown={(e) => {
+        // Only the layer itself (not a focused child mark) creates a new mark.
+        if (e.target === ref.current && (e.key === 'Enter' || e.key === ' ')) {
+          e.preventDefault();
+          setFocusId(onAdd({ pageIndex, x: 0.3, y: 0.425, w: 0.4, h: 0.15 }));
+        }
+      }}
+      onPointerDown={(e) => {
+        if (e.target !== ref.current) return; // clicking a mark shouldn't start a new draft
+        (e.target as HTMLElement).setPointerCapture(e.pointerId);
+        start.current = frac(e.clientX, e.clientY);
+        setDraft({ ...start.current, w: 0, h: 0 });
+      }}
+      onPointerMove={(e) => {
+        if (!start.current) return;
+        setDraft(rectFrom(start.current, frac(e.clientX, e.clientY)));
+      }}
+      onPointerUp={(e) => {
+        if (start.current) {
+          const r = rectFrom(start.current, frac(e.clientX, e.clientY));
+          // Ignore stray clicks (require a minimum marked area).
+          if (r.w > 0.005 && r.h > 0.005) onAdd({ pageIndex, ...r });
+        }
+        start.current = null;
+        setDraft(null);
+      }}
+    >
+      {mine.map((r) => (
+        <div
+          key={r.id}
+          data-mark-id={r.id}
+          className="cpdf__redactrect"
+          style={pctStyle(r)}
+          tabIndex={0}
+          role="button"
+          aria-label={`Redaction mark. Arrow keys move, plus and minus resize, Delete removes.`}
+          onKeyDown={(e) => onMarkKey(e, r)}
+        >
+          <button
+            type="button"
+            className="cpdf__redactrect-remove"
+            aria-label="Remove redaction mark"
+            title="Remove this mark"
+            tabIndex={-1}
+            // Stop the pointer from starting a new drag on the parent layer.
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => { e.stopPropagation(); onRemove(r); }}
+          >✕</button>
+        </div>
+      ))}
+      {draft && <div className="cpdf__redactrect cpdf__redactrect--draft" style={pctStyle(draft)} />}
+    </div>
+  );
+}
+
+/** Render a page Blob to a canvas, paint opaque black over the fractional
+ *  redaction rects (top-left fractional coords map directly to canvas pixels),
+ *  and return PNG bytes. The output page geometry is taken from the source page
+ *  (buildRedactedPdf), not the image, so a `/Rotate`d or offset page isn't
+ *  distorted. Throws if the bitmap can't be decoded or the canvas can't encode —
+ *  callers must treat that as a hard failure (never silently skip a page). */
+async function flattenPage(blob: Blob, rects: { x: number; y: number; w: number; h: number }[]): Promise<Uint8Array> {
+  const img = await createImageBitmap(blob);
+  const canvas = document.createElement('canvas');
+  canvas.width = img.width;
+  canvas.height = img.height;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    img.close();
+    throw new Error('redaction: no 2D canvas context');
+  }
+  ctx.drawImage(img, 0, 0);
+  img.close();
+  ctx.fillStyle = '#000';
+  for (const r of rects) {
+    ctx.fillRect(r.x * canvas.width, r.y * canvas.height, r.w * canvas.width, r.h * canvas.height);
+  }
+  const out: Blob | null = await new Promise((res) => canvas.toBlob((b) => res(b), 'image/png'));
+  if (!out) throw new Error('redaction: canvas encode failed (page too large?)');
+  return new Uint8Array(await out.arrayBuffer());
+}
+
+/** Sample the page background just OUTSIDE a box (fractional, top-left) so an
+ *  overlay cover box blends with the page. Reads a ring of points around the box
+ *  and returns the per-channel median (robust to stray glyph pixels in the ring),
+ *  or null if sampling isn't possible. */
+function sampleBg(
+  ctx: CanvasRenderingContext2D,
+  box: { x: number; y: number; w: number; h: number },
+  W: number,
+  H: number,
+): [number, number, number] | null {
+  const bx = box.x * W, by = box.y * H, bw = box.w * W, bh = box.h * H;
+  const m = Math.max(2, Math.round(bh * 0.4)); // ring margin outside the box
+  const cx = (x: number) => Math.min(W - 1, Math.max(0, Math.round(x)));
+  const cy = (y: number) => Math.min(H - 1, Math.max(0, Math.round(y)));
+  const pts: [number, number][] = [];
+  for (let i = 0; i <= 12; i++) { const fx = bx + (bw * i) / 12; pts.push([fx, by - m], [fx, by + bh + m]); }
+  for (let i = 0; i <= 8; i++) { const fy = by + (bh * i) / 8; pts.push([bx - m, fy], [bx + bw + m, fy]); }
+  const rs: number[] = [], gs: number[] = [], bs: number[] = [];
+  for (const [x, y] of pts) {
+    let d: Uint8ClampedArray;
+    try { d = ctx.getImageData(cx(x), cy(y), 1, 1).data; } catch { return null; }
+    if (d[3] === 0) continue;
+    rs.push(d[0]); gs.push(d[1]); bs.push(d[2]);
+  }
+  if (rs.length < 4) return null;
+  const med = (a: number[]) => { const s = [...a].sort((p, q) => p - q); return s[s.length >> 1]; };
+  return [med(rs), med(gs), med(bs)];
+}
+
+/** Render a page Blob to a scratch canvas and sample the background around `box`. */
+async function sampleBgFromBlob(blob: Blob, box: { x: number; y: number; w: number; h: number }): Promise<[number, number, number] | null> {
+  const img = await createImageBitmap(blob);
+  try {
+    const canvas = document.createElement('canvas');
+    canvas.width = img.width;
+    canvas.height = img.height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+    ctx.drawImage(img, 0, 0);
+    return sampleBg(ctx, box, canvas.width, canvas.height);
+  } finally {
+    img.close();
+  }
+}
+
+/** Bake an overlay edit onto a rendered page: paint an opaque cover box over the
+ *  old run, then draw the new text on top, and return PNG bytes. Used by the
+ *  overlay "Secure (flatten)" path — the flattened page (built by buildRedactedPdf)
+ *  is an image, so the original glyphs are truly removed (not just covered).
+ *  All geometry is fractional (0–1, top-left origin), so it's resolution-agnostic. */
+async function flattenPageWithOverlay(
+  blob: Blob,
+  edit: {
+    x: number; y: number; w: number; h: number; // cover box (fractional, top-left)
+    baselineY: number; // text baseline y (fractional, top-left)
+    fontSizeFrac: number; // font size / page height
+    text: string;
+    fontFamily: string; // CSS family stack
+    fontWeight: number;
+    fontItalic: boolean;
+    color: string; // CSS color
+    bg: string; // CSS cover-box color
+  },
+): Promise<Uint8Array> {
+  const img = await createImageBitmap(blob);
+  const canvas = document.createElement('canvas');
+  canvas.width = img.width;
+  canvas.height = img.height;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    img.close();
+    throw new Error('overlay: no 2D canvas context');
+  }
+  const W = canvas.width;
+  const H = canvas.height;
+  ctx.drawImage(img, 0, 0);
+  img.close();
+  // Sample the surrounding background so the cover box blends (fall back to the
+  // caller's `bg`). Sample BEFORE painting the box.
+  const sampled = sampleBg(ctx, edit, W, H);
+  ctx.fillStyle = sampled ? `rgb(${sampled[0]}, ${sampled[1]}, ${sampled[2]})` : edit.bg;
+  ctx.fillRect(edit.x * W, edit.y * H, edit.w * W, edit.h * H);
+  if (edit.text.length > 0) {
+    const px = edit.fontSizeFrac * H;
+    ctx.font = `${edit.fontItalic ? 'italic ' : ''}${edit.fontWeight >= 600 ? 'bold ' : ''}${px}px ${edit.fontFamily}`;
+    ctx.fillStyle = edit.color;
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText(edit.text, edit.x * W, edit.baselineY * H);
+  }
+  const out: Blob | null = await new Promise((res) => canvas.toBlob((b) => res(b), 'image/png'));
+  if (!out) throw new Error('overlay: canvas encode failed (page too large?)');
+  return new Uint8Array(await out.arrayBuffer());
+}
+
+/** Tier-2 text editing overlay (one per page). Lists the page's text runs from
+ *  the current document bytes (PDFium), draws a clickable box over each, and on
+ *  click opens an inline input that auto-commits on blur (click-outside = save).
+ *  Run bounds are PDFium user space (bottom-left origin), mapped to the page
+ *  overlay with a y-flip. Font-size is computed from the run's height in CSS px. */
+function TextEditLayer({
+  documentId,
+  pageIndex,
+  bytes,
+  onCommit,
+  onReady,
+  editBusy,
+}: {
+  documentId: string;
+  pageIndex: number;
+  bytes: Uint8Array;
+  onCommit: (pageIndex: number, objectIndex: number, objectIndices: number[], newText: string) => void;
+  onReady?: () => void;
+  editBusy?: boolean;
+}) {
+  const { provides: docCap } = useDocumentManagerCapability();
+  // Keep previous runs while re-fetching so there's no loading flash on each commit.
+  const [runs, setRuns] = useState<PdfTextRun[] | null>(null);
+  const [active, setActive] = useState<{ index: number; indices: number[]; text: string } | null>(null);
+  const size = docCap?.getDocument(documentId)?.pages?.[pageIndex]?.size as { width: number; height: number } | undefined;
+  const layerRef = useRef<HTMLDivElement>(null);
+  const [pagePxH, setPagePxH] = useState(0);
+  // Fire onReady only once per tool activation (not after every commit re-fetch).
+  const firstRunsDoneRef = useRef(false);
+  useEffect(() => {
+    const el = layerRef.current;
+    if (!el) return;
+    const update = () => setPagePxH(el.offsetHeight);
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    update();
+    return () => ro.disconnect();
+  }, []);
+  // Guard against onBlur firing after Enter/Escape already handled the action.
+  const suppressBlurRef = useRef(false);
+  // If a commit is in-flight when the user blurs an input (or presses Enter/Tab),
+  // we can't start a new commit immediately. Queue the args here; the useEffect
+  // below flushes them once editBusy transitions back to false.
+  type CommitArgs = [number, number, number[], string];
+  const pendingCommitRef = useRef<CommitArgs | null>(null);
+  // Stable ref so the useEffect never captures a stale onCommit closure.
+  const onCommitRef = useRef(onCommit);
+  onCommitRef.current = onCommit;
+  useEffect(() => {
+    if (!editBusy && pendingCommitRef.current) {
+      const args = pendingCommitRef.current;
+      pendingCommitRef.current = null;
+      onCommitRef.current(...args);
+    }
+  }, [editBusy]);
+
+  useEffect(() => {
+    let cancelled = false;
+    // Do NOT reset runs to null — keep previous runs visible while re-fetching
+    // so there's no "Analyzing text…" spinner after each commit.
+    import('../textedit-pdfium')
+      .then(({ listTextRuns }) => listTextRuns(bytes, pageIndex))
+      .then((r) => {
+        if (!cancelled) {
+          setRuns(r);
+          if (!firstRunsDoneRef.current) {
+            firstRunsDoneRef.current = true;
+            onReady?.();
+          }
+        }
+      })
+      .catch(() => !cancelled && setRuns([]));
+    return () => { cancelled = true; };
+  }, [bytes, pageIndex]);
+
+  if (!size) return null;
+  // Show a minimal loading layer only on the very first load (runs === null).
+  if (!runs) {
+    return (
+      <div ref={layerRef} className="cpdf__textedit" aria-live="polite" aria-label="Analyzing text…">
+        <div className="cpdf__textedit-loading">Analyzing text…</div>
+      </div>
+    );
+  }
+
+  const boxStyle = (r: PdfTextRun): React.CSSProperties => ({
+    left: `${(r.left / size.width) * 100}%`,
+    top: `${((size.height - r.top) / size.height) * 100}%`,
+    width: `${((r.right - r.left) / size.width) * 100}%`,
+    height: `${((r.top - r.bottom) / size.height) * 100}%`,
+  });
+
+  // Build the full style for the active input: position from PDF bounds,
+  // font properties extracted from PDFium so the input visually matches.
+  // fontSizePt = rendered size in PDF user space (design × text-matrix scale).
+  // × page_scale → CSS px; × 0.82 corrects for CSS em-square > visual glyph height.
+  const inputStyle = (r: PdfTextRun): React.CSSProperties => {
+    const scale = pagePxH && size?.height ? pagePxH / size.height : 0;
+    const fsPx = scale > 0 ? Math.round(r.fontSizePt * scale * 0.82) : undefined;
+    const isDark = document.documentElement.dataset.theme === 'dark';
+    return {
+      ...boxStyle(r),
+      fontFamily: r.fontFamily,
+      fontWeight: r.fontWeight,
+      fontStyle: r.fontItalic ? 'italic' : 'normal',
+      color: isDark ? '#f0f0f0' : r.color,
+      ...(fsPx && fsPx > 4 ? { fontSize: `${fsPx}px` } : {}),
+    };
+  };
+
+  // Tab-order: top-to-bottom, then left-to-right (reading order).
+  const sortedRuns = [...runs].sort((a, b) => {
+    const dy = Math.round((b.top - a.top) * 10);
+    return dy !== 0 ? dy : a.left - b.left;
+  });
+
+  // Commit current text and optionally activate the next run (Tab/Enter navigation).
+  // Uses the same pending queue as onBlur so edits aren't silently dropped when
+  // a previous commit is still in-flight.
+  const commitAndMove = (
+    index: number, indices: number[], text: string, original: string,
+    nextRun: PdfTextRun | null,
+  ) => {
+    suppressBlurRef.current = true;
+    if (text !== original) {
+      if (editBusy) {
+        pendingCommitRef.current = [pageIndex, index, indices, text];
+      } else {
+        onCommit(pageIndex, index, indices, text);
+      }
+    }
+    setActive(nextRun ? { index: nextRun.index, indices: nextRun.indices, text: nextRun.text } : null);
+  };
+
+  // Cancel — revert to original without saving.
+  const cancel = () => {
+    suppressBlurRef.current = true;
+    setActive(null);
+  };
+
+  return (
+    <div ref={layerRef} className="cpdf__textedit">
+      {runs.map((r) =>
+        active?.index === r.index ? (
+          <input
+            key={r.index}
+            className="cpdf__textedit-input"
+            style={inputStyle(r)}
+            autoFocus
+            value={active.text}
+            aria-label="Edit text"
+            onFocus={(e) => {
+              suppressBlurRef.current = false;
+              e.currentTarget.select();
+            }}
+            onChange={(e) => setActive({ index: r.index, indices: r.indices, text: e.target.value })}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                commitAndMove(r.index, r.indices, active.text, r.text, null);
+              } else if (e.key === 'Escape') {
+                e.preventDefault();
+                cancel();
+              } else if (e.key === 'Tab') {
+                e.preventDefault();
+                const ci = sortedRuns.findIndex((x) => x.index === r.index);
+                const next = e.shiftKey
+                  ? (ci > 0 ? sortedRuns[ci - 1] : null)
+                  : (ci < sortedRuns.length - 1 ? sortedRuns[ci + 1] : null);
+                commitAndMove(r.index, r.indices, active.text, r.text, next);
+              }
+            }}
+            onBlur={(e) => {
+              if (suppressBlurRef.current) { suppressBlurRef.current = false; return; }
+              const rel = e.relatedTarget as HTMLElement | null;
+              const clickingOtherRun = !!rel?.classList.contains('cpdf__textedit-run');
+              // Always commit on blur (whether moving to another run or clicking outside).
+              // When clicking another run, onBlur fires first; that button's onClick will
+              // activate it — so we just need to commit and NOT call setActive(null).
+              if (active.text !== r.text) {
+                if (editBusy) {
+                  // A commit is already in-flight — queue this one so it's not
+                  // silently dropped. pendingCommitRef is flushed by the useEffect
+                  // above once editBusy becomes false.
+                  pendingCommitRef.current = [pageIndex, r.index, r.indices, active.text];
+                } else {
+                  onCommit(pageIndex, r.index, r.indices, active.text);
+                }
+              }
+              if (!clickingOtherRun) setActive(null);
+              // If clicking another run: keep active momentarily; that run's onClick fires
+              // immediately after and sets the new active. No setActive(null) = no flicker.
+            }}
+          />
+        ) : (
+          <button
+            key={r.index}
+            type="button"
+            className="cpdf__textedit-run"
+            style={boxStyle(r)}
+            title={r.fontSubsetted ? `${r.text}\n(Font is subsetted — editing may change the typeface)` : r.text}
+            aria-label={`Edit text: ${r.text}`}
+            disabled={editBusy}
+            onClick={() => {
+              // onBlur on the previously active input already committed it.
+              // Just activate this run.
+              setActive({ index: r.index, indices: r.indices, text: r.text });
+            }}
+          />
+        ),
+      )}
+    </div>
+  );
+}
+
+/* ── Left tool rail ───────────────────────────────────────────────────────── */
+/** A labelled rail button — icon + caption so the rail reads as a tool palette. */
+function RailBtn({
+  icon,
+  label,
+  title,
+  active,
+  disabled,
+  onClick,
+}: {
+  icon: IconName;
+  label: string;
+  title?: string;
+  active?: boolean;
+  disabled?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="cpdf__railbtn"
+      data-active={active ? 'true' : undefined}
+      aria-label={title ?? label}
+      aria-pressed={active === undefined ? undefined : !!active}
+      title={title ?? label}
+      disabled={disabled}
+      onClick={onClick}
+    >
+      <Icon name={icon} filled={!!active} size={22} />
+    </button>
+  );
+}
+
+function LeftRail({
+  documentId,
+  mode,
+  leftPanel,
+  onToggleLeft,
+  onOrganize,
+  onSign,
+  onInsertImage,
+  redacting,
+  onToggleRedact,
+  textEditing,
+  onToggleTextEdit,
+  onUndo,
+  onRedo,
+}: {
+  documentId: string;
+  mode: Mode;
+  leftPanel: LeftPanel;
+  onToggleLeft: (p: 'thumbs' | 'outline' | 'comments' | 'signatures') => void;
+  onOrganize: () => void;
+  onSign: () => void;
+  onInsertImage: () => void;
+  redacting: boolean;
+  onToggleRedact: () => void;
+  textEditing: boolean;
+  onToggleTextEdit: () => void;
+  onUndo?: () => void;
+  onRedo?: () => void;
+}) {
+  const { state: anno, provides: annoApi } = useAnnotation(documentId);
+  const { provides: history } = useHistoryCapability();
+  const activeToolId = anno?.activeToolId ?? null;
+  const editing = mode !== 'view';
+
+  // Track annotation-history availability so undo/redo buttons reflect real state.
+  const [annoCanUndo, setAnnoCanUndo] = useState(false);
+  const [annoCanRedo, setAnnoCanRedo] = useState(false);
+  useEffect(() => {
+    if (!history) return;
+    const update = () => {
+      setAnnoCanUndo(history.canUndo());
+      setAnnoCanRedo(history.canRedo());
+    };
+    update();
+    return history.onHistoryChange(update);
+  }, [history]);
+
+  return (
+    <div className="cpdf__rail" role="toolbar" aria-orientation="vertical" aria-label="Tools">
+      <RailBtn icon="thumbnails" label="Pages" title="Page thumbnails" active={leftPanel === 'thumbs'} onClick={() => onToggleLeft('thumbs')} />
+      <RailBtn icon="outline" label="Outline" title="Document outline" active={leftPanel === 'outline'} onClick={() => onToggleLeft('outline')} />
+      <RailBtn icon="comments" label="Comments" title="Comments & annotations" active={leftPanel === 'comments'} onClick={() => onToggleLeft('comments')} />
+      <RailBtn icon="sign" label="Signatures" title="Request signatures" active={leftPanel === 'signatures'} onClick={() => onToggleLeft('signatures')} />
+      {editing && (
+        <>
+          <span className="cpdf__rail-sep" aria-hidden="true" />
+          <RailBtn icon="text-tool" label="Edit text" title="Quick text edits — fix typos & short values (not a paragraph editor)" active={textEditing} onClick={onToggleTextEdit} />
+          <RailBtn icon="image" label="Image" title="Insert an image" onClick={onInsertImage} />
+          <RailBtn icon="redact" label="Redact" title="Redact (permanently remove regions)" active={redacting} onClick={onToggleRedact} />
+          <RailBtn icon="sign" label="Sign" title="Add a signature" onClick={onSign} />
+          <RailBtn icon="organize" label="Organize" title="Organize pages (reorder / delete)" onClick={onOrganize} />
+          <span className="cpdf__rail-sep" aria-hidden="true" />
+          <RailBtn icon="cursor" label="Select" title="Select (V)" active={activeToolId === null} onClick={() => annoApi?.setActiveTool(null)} />
+          {TOOLS.map((t) => (
+            <RailBtn
+              key={t.id}
+              icon={t.icon}
+              label={t.label.replace(' box', '')}
+              title={`${t.label} (${t.key.toUpperCase()})`}
+              active={activeToolId === t.id}
+              onClick={() => annoApi?.setActiveTool(activeToolId === t.id ? null : t.id)}
+            />
+          ))}
+          <span className="cpdf__rail-sep" aria-hidden="true" />
+          <RailBtn icon="undo" label="Undo" title="Undo (⌘Z)" disabled={!annoCanUndo && !onUndo} onClick={() => onUndo ? onUndo() : history?.undo()} />
+          <RailBtn icon="redo" label="Redo" title="Redo (⌘⇧Z)" disabled={!annoCanRedo && !onRedo} onClick={() => onRedo ? onRedo() : history?.redo()} />
+        </>
+      )}
+    </div>
+  );
+}
+
+/* ── Right properties panel ───────────────────────────────────────────────── */
+function PropertiesPanel({ documentId }: { documentId: string }) {
+  const { provides: cap } = useAnnotationCapability();
+  const { state: anno, provides: scope } = useAnnotation(documentId);
+  // Tool-default changes live in global plugin state (not the per-document state
+  // useAnnotation subscribes to), so bump a tick to re-read them after a change.
+  const [, setTick] = useState(0);
+  const activeToolId = anno?.activeToolId ?? null;
+  const selected = scope?.getSelectedAnnotations() ?? [];
+  const hasContext = activeToolId !== null || selected.length > 0;
+  // Contextual: no empty box — the panel only exists when there's something to style.
+  if (!hasContext) return null;
+
+  const firstObj = selected[0]?.object as
+    | { color?: string; strokeColor?: string; fontColor?: string; opacity?: number; fontSize?: number; strokeWidth?: number; fontFamily?: number; textAlign?: number }
+    | undefined;
+  const toolDefaults = activeToolId ? (cap?.getTool(activeToolId)?.defaults as Record<string, unknown> | undefined) : undefined;
+  const currentColor = norm(
+    firstObj?.fontColor ?? firstObj?.strokeColor ?? firstObj?.color ??
+      (toolDefaults?.fontColor as string) ?? (toolDefaults?.strokeColor as string) ?? (toolDefaults?.color as string),
+  );
+  const currentOpacity = firstObj?.opacity ?? (toolDefaults?.opacity as number) ?? 1;
+  const currentFontSize = firstObj?.fontSize ?? (toolDefaults?.fontSize as number) ?? 16;
+  const currentStrokeWidth = firstObj?.strokeWidth ?? (toolDefaults?.strokeWidth as number) ?? 2;
+  const currentFontFamily = firstObj?.fontFamily ?? (toolDefaults?.fontFamily as number) ?? 4; // Helvetica
+  const currentAlign = firstObj?.textAlign ?? (toolDefaults?.textAlign as number) ?? 0; // Left
+  const relevant = (set: Set<string>) =>
+    (activeToolId !== null && set.has(activeToolId)) ||
+    selected.some((a) => set.has(scope?.findToolForAnnotation(a.object)?.id ?? ''));
+  const widthRelevant = relevant(STROKE_TOOLS);
+  const fontRelevant = relevant(TEXT_TOOLS);
+  // A single selected comment note: its text lives in `contents` (edited here).
+  const note =
+    selected.length === 1 && scope && scope.findToolForAnnotation(selected[0].object)?.id === 'textComment'
+      ? (selected[0].object as { id: string; pageIndex: number; contents?: string })
+      : null;
+
+  const apply = (patch: Record<string, unknown>, colorMode = false) => {
+    if (selected.length && scope) {
+      scope.updateAnnotations(
+        selected.map((a) => ({
+          pageIndex: a.object.pageIndex,
+          id: a.object.id,
+          patch: colorMode ? patchFor(scope.findToolForAnnotation(a.object)?.id, patch.color as string) : patch,
+        })),
+      );
+    } else if (activeToolId && cap) {
+      cap.setToolDefaults(activeToolId, colorMode ? patchFor(activeToolId, patch.color as string) : patch);
+      setTick((t) => t + 1);
+    }
+  };
+  const deleteSelected = () => {
+    if (selected.length && scope) scope.deleteAnnotations(selected.map((a) => ({ pageIndex: a.object.pageIndex, id: a.object.id })));
+  };
+
+  return (
+    <aside className="cpdf__props" aria-label="Properties">
+      <div className="cpdf__props-head">{note ? 'Comment' : selected.length > 0 ? 'Selection' : 'Tool style'}</div>
+      <div className="cpdf__props-body">
+          {note && (
+            <div className="cpdf__field">
+              <span className="cpdf__field-label">Comment</span>
+              <textarea
+                key={note.id}
+                className="cpdf__comment-input"
+                defaultValue={note.contents ?? ''}
+                placeholder="Type your comment…"
+                rows={4}
+                autoFocus
+                onChange={(e) =>
+                  scope?.updateAnnotations([{ pageIndex: note.pageIndex, id: note.id, patch: { contents: e.target.value } }])
+                }
+              />
+            </div>
+          )}
+          <div className="cpdf__field">
+            <span className="cpdf__field-label">Color</span>
+            <div className="cpdf__swatches">
+              {PALETTE.map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  className="cpdf__swatch"
+                  data-active={norm(c) === currentColor ? 'true' : undefined}
+                  style={{ background: c }}
+                  aria-label={`Color ${c}`}
+                  aria-pressed={norm(c) === currentColor}
+                  onClick={() => apply({ color: c }, true)}
+                />
+              ))}
+              {/* Custom color — a rainbow chip that opens the native picker for
+                  any color beyond the presets. Shows the picked color when the
+                  current color isn't one of the swatches. */}
+              {(() => {
+                const isCustom = !!currentColor && !PALETTE.some((c) => norm(c) === currentColor);
+                const hex = /^#[0-9a-f]{6}$/.test(currentColor) ? currentColor : PALETTE[0];
+                return (
+                  <label
+                    className="cpdf__swatch cpdf__swatch--custom"
+                    data-active={isCustom ? 'true' : undefined}
+                    title="Custom color"
+                    style={isCustom ? { background: currentColor } : undefined}
+                  >
+                    <input
+                      type="color"
+                      aria-label="Custom color"
+                      value={hex}
+                      onChange={(e) => apply({ color: e.target.value }, true)}
+                    />
+                  </label>
+                );
+              })()}
+            </div>
+          </div>
+          {widthRelevant && (
+            <div className="cpdf__field">
+              <span className="cpdf__field-label">Stroke width</span>
+              <div className="cpdf__widths">
+                {STROKE_WIDTHS.map((w) => (
+                  <button
+                    key={w}
+                    type="button"
+                    className="cpdf__wbtn"
+                    data-active={currentStrokeWidth === w ? 'true' : undefined}
+                    aria-label={`Stroke width ${w}`}
+                    aria-pressed={currentStrokeWidth === w}
+                    onClick={() => apply({ strokeWidth: w })}
+                  >
+                    <span style={{ height: w }} />
+                  </button>
+                ))}
+                <input
+                  type="number"
+                  className="cpdf__numinput"
+                  min={1}
+                  max={72}
+                  step={1}
+                  value={currentStrokeWidth}
+                  aria-label="Custom stroke width"
+                  onChange={(e) => {
+                    const n = parseFloat(e.target.value);
+                    if (!Number.isNaN(n)) apply({ strokeWidth: Math.min(72, Math.max(1, n)) });
+                  }}
+                />
+              </div>
+            </div>
+          )}
+          {fontRelevant && (
+            <div className="cpdf__field">
+              <span className="cpdf__field-label">Font size</span>
+              <div className="cpdf__widths">
+                {FONT_SIZES.map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    className="cpdf__opbtn"
+                    data-active={currentFontSize === s ? 'true' : undefined}
+                    aria-pressed={currentFontSize === s}
+                    onClick={() => apply({ fontSize: s })}
+                  >
+                    {s}
+                  </button>
+                ))}
+                <input
+                  type="number"
+                  className="cpdf__numinput"
+                  min={6}
+                  max={144}
+                  step={1}
+                  value={currentFontSize}
+                  aria-label="Custom font size"
+                  onChange={(e) => {
+                    const n = parseFloat(e.target.value);
+                    if (!Number.isNaN(n)) apply({ fontSize: Math.min(144, Math.max(6, n)) });
+                  }}
+                />
+              </div>
+            </div>
+          )}
+          {fontRelevant && (
+            <div className="cpdf__field">
+              <span className="cpdf__field-label">Font</span>
+              <div className="cpdf__widths">
+                {FONT_FAMILIES.map((f) => (
+                  <button
+                    key={f.value}
+                    type="button"
+                    className="cpdf__opbtn"
+                    data-active={currentFontFamily === f.value ? 'true' : undefined}
+                    aria-pressed={currentFontFamily === f.value}
+                    onClick={() => apply({ fontFamily: f.value })}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          {fontRelevant && (
+            <div className="cpdf__field">
+              <span className="cpdf__field-label">Alignment</span>
+              <div className="cpdf__widths">
+                {TEXT_ALIGNS.map((al) => (
+                  <button
+                    key={al.value}
+                    type="button"
+                    className="cpdf__wbtn"
+                    data-active={currentAlign === al.value ? 'true' : undefined}
+                    aria-label={al.label}
+                    aria-pressed={currentAlign === al.value}
+                    onClick={() => apply({ textAlign: al.value })}
+                  >
+                    <Icon name={al.icon} size={18} />
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          <div className="cpdf__field">
+            <span className="cpdf__field-label">Opacity</span>
+            <div className="cpdf__widths">
+              {OPACITIES.map((o) => (
+                <button
+                  key={o}
+                  type="button"
+                  className="cpdf__opbtn"
+                  data-active={Math.abs(currentOpacity - o) < 0.01 ? 'true' : undefined}
+                  aria-pressed={Math.abs(currentOpacity - o) < 0.01}
+                  onClick={() => apply({ opacity: o })}
+                >
+                  {Math.round(o * 100)}%
+                </button>
+              ))}
+              <input
+                type="number"
+                className="cpdf__numinput"
+                min={5}
+                max={100}
+                step={5}
+                value={Math.round(currentOpacity * 100)}
+                aria-label="Custom opacity percent"
+                onChange={(e) => {
+                  const n = parseFloat(e.target.value);
+                  if (!Number.isNaN(n)) apply({ opacity: Math.min(1, Math.max(0.05, n / 100)) });
+                }}
+              />
+            </div>
+          </div>
+          {selected.length > 0 && (
+            <button type="button" className="cpdf__delete" onClick={deleteSelected}>
+              <Icon name="trash" size={16} />
+              Delete{selected.length > 1 ? ` (${selected.length})` : ''}
+            </button>
+          )}
+        </div>
+    </aside>
+  );
+}
+
+/* ── Zoom-level preset menu (the % in the view bar) ───────────────────────── */
+const ZOOM_PRESETS = [0.5, 0.75, 1, 1.25, 1.5, 2, 4];
+function ZoomMenu({ pct, zoomApi }: { pct: number; zoomApi: ReturnType<typeof useZoom>['provides'] }) {
+  const [open, setOpen] = useState(false);
+  // Anchor rect captured at open time. The popover is portaled to <body> so it
+  // escapes the view bar's `overflow-x:auto` clip + `transform` containing block.
+  const [anchor, setAnchor] = useState<DOMRect | null>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const popRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: PointerEvent) => {
+      const t = e.target as Node;
+      if (btnRef.current?.contains(t) || popRef.current?.contains(t)) return;
+      setOpen(false);
+    };
+    const onEsc = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false);
+    window.addEventListener('pointerdown', onDown);
+    window.addEventListener('keydown', onEsc);
+    return () => {
+      window.removeEventListener('pointerdown', onDown);
+      window.removeEventListener('keydown', onEsc);
+    };
+  }, [open]);
+  const toggle = () => {
+    if (!open && btnRef.current) setAnchor(btnRef.current.getBoundingClientRect());
+    setOpen((v) => !v);
+  };
+  const pick = (level: number) => {
+    zoomApi?.requestZoom(level);
+    setOpen(false);
+  };
+  return (
+    <div className="cpdf__zoommenu">
+      <button
+        ref={btnRef}
+        type="button"
+        className="cpdf__zoomlabel"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        title="Zoom level"
+        onClick={toggle}
+      >
+        {pct}%
+      </button>
+      {open && anchor &&
+        createPortal(
+          <div
+            ref={popRef}
+            className="cpdf__zoompop"
+            role="menu"
+            aria-label="Zoom level"
+            style={{ left: anchor.left + anchor.width / 2, bottom: window.innerHeight - anchor.top + 8 }}
+          >
+            {ZOOM_PRESETS.map((p) => (
+              <button
+                key={p}
+                type="button"
+                role="menuitemradio"
+                aria-checked={Math.round(p * 100) === pct}
+                data-active={Math.round(p * 100) === pct ? 'true' : undefined}
+                className="cpdf__zoomopt"
+                onClick={() => pick(p)}
+              >
+                {Math.round(p * 100)}%
+              </button>
+            ))}
+          </div>,
+          document.body,
+        )}
+    </div>
+  );
+}
+
+/* ── Floating bottom view bar ─────────────────────────────────────────────── */
+function BottomBar({
+  documentId,
+  searchOpen,
+  onToggleSearch,
+  redacting,
+}: {
+  documentId: string;
+  searchOpen: boolean;
+  onToggleSearch: () => void;
+  redacting?: boolean;
+}) {
+  const { state: zoom, provides: zoomApi } = useZoom(documentId);
+  const { state: scroll, provides: scrollApi } = useScroll(documentId);
+  const { provides: scrollCap } = useScrollCapability();
+  const { provides: rotateApi } = useRotate(documentId);
+  const { spreadMode, provides: spreadApi } = useSpread(documentId);
+  const { state: fs, provides: fsApi } = useFullscreen();
+  const { isPanning, provides: panApi } = usePan(documentId);
+  const [horizontal, setHorizontal] = useState(false);
+  // A document swap (organize / redaction rebuild → new id) resets scrolling to
+  // the default vertical strategy; keep the toggle's state in sync.
+  useEffect(() => setHorizontal(false), [documentId]);
+  // Page-number field: a draft while the user types (null = show current page).
+  const [pageDraft, setPageDraft] = useState<string | null>(null);
+
+  const page = scroll?.currentPage ?? 1;
+  const total = scroll?.totalPages ?? 0;
+  const pct = Math.round((zoom?.currentZoomLevel ?? 1) * 100);
+
+  return (
+    <div className="cpdf__bottom" role="toolbar" aria-label="View controls">
+      <div className="cpdf__group">
+        <IconButton icon="search" label="Find in document" active={searchOpen} onClick={onToggleSearch} />
+      </div>
+      <span className="cpdf__sep" aria-hidden="true" />
+      <div className="cpdf__group">
+        <IconButton icon="chevron-left" label="Previous page" disabled={page <= 1} onClick={() => scrollApi?.scrollToPreviousPage()} />
+        <span className="cpdf__pagebox">
+          <input
+            className="cpdf__pageinput"
+            aria-label="Page number"
+            inputMode="numeric"
+            value={pageDraft ?? String(page)}
+            onChange={(e) => setPageDraft(e.target.value.replace(/[^0-9]/g, ''))}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+              else if (e.key === 'Escape') {
+                setPageDraft(null);
+                (e.target as HTMLInputElement).blur();
+              }
+            }}
+            onBlur={() => {
+              if (pageDraft != null && pageDraft !== '') {
+                const n = parseInt(pageDraft, 10);
+                if (scrollApi && !Number.isNaN(n)) scrollApi.scrollToPage({ pageNumber: Math.min(Math.max(1, n), total || 1) });
+              }
+              setPageDraft(null);
+            }}
+            onFocus={(e) => e.currentTarget.select()}
+          />
+          <span className="cpdf__pagetotal">/ {total}</span>
+        </span>
+        <IconButton icon="chevron-right" label="Next page" disabled={total > 0 && page >= total} onClick={() => scrollApi?.scrollToNextPage()} />
+      </div>
+      <span className="cpdf__sep" aria-hidden="true" />
+      <div className="cpdf__group">
+        <IconButton icon="zoom-out" label="Zoom out" onClick={() => zoomApi?.zoomOut()} />
+        <ZoomMenu pct={pct} zoomApi={zoomApi} />
+        <IconButton icon="zoom-in" label="Zoom in" onClick={() => zoomApi?.zoomIn()} />
+        <IconButton icon="fit-width" label="Fit width" active={zoom?.zoomLevel === ZoomMode.FitWidth} onClick={() => zoomApi?.requestZoom(ZoomMode.FitWidth)} />
+        <IconButton icon="fit-page" label="Fit page" active={zoom?.zoomLevel === ZoomMode.FitPage} onClick={() => zoomApi?.requestZoom(ZoomMode.FitPage)} />
+      </div>
+      <span className="cpdf__sep" aria-hidden="true" />
+      <div className="cpdf__group">
+        <IconButton icon="rotate" label={redacting ? 'Rotate (disabled while redacting)' : 'Rotate'} disabled={redacting} onClick={() => rotateApi?.rotateForward()} />
+        <IconButton icon="spread" label="Two-page spread" active={spreadMode !== SpreadMode.None} onClick={() => spreadApi?.setSpreadMode(spreadMode === SpreadMode.None ? SpreadMode.Odd : SpreadMode.None)} />
+        <IconButton
+          icon="scroll-h"
+          label={horizontal ? 'Vertical scrolling' : 'Horizontal scrolling'}
+          active={horizontal}
+          onClick={() => {
+            const next = !horizontal;
+            setHorizontal(next);
+            scrollCap?.setScrollStrategy(next ? ScrollStrategy.Horizontal : ScrollStrategy.Vertical, documentId);
+          }}
+        />
+        <IconButton icon="hand" label="Pan" active={isPanning} onClick={() => panApi?.togglePan()} />
+        <IconButton icon={fs.isFullscreen ? 'fullscreen-exit' : 'fullscreen-enter'} label={fs.isFullscreen ? 'Exit full screen' : 'Full screen'} active={fs.isFullscreen} onClick={() => fsApi?.toggleFullscreen(ROOT_ID)} />
+      </div>
+    </div>
+  );
+}
+
+/* ── Find bar (floats top-right of the canvas) ────────────────────────────── */
+function SearchPanel({
+  documentId,
+  onClose,
+  canRedact,
+  onRedactMatches,
+}: {
+  documentId: string;
+  onClose: () => void;
+  canRedact?: boolean;
+  onRedactMatches?: (results: { pageIndex: number; rects: { origin: { x: number; y: number }; size: { width: number; height: number } }[] }[]) => void;
+}) {
+  const { state, provides } = useSearch(documentId);
+  const { provides: scrollApi } = useScroll(documentId);
+  const [q, setQ] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
+  const resultsRef = useRef(state?.results);
+  resultsRef.current = state?.results;
+  useEffect(() => inputRef.current?.focus(), []);
+  // Clear match highlights when the find bar closes (this panel unmounts).
+  // The SearchLayer is mounted per-page unconditionally, so without stopSearch
+  // the last query's highlights stay painted after dismiss. Ref so the unmount
+  // cleanup calls the latest capability without re-running on every provides change.
+  const providesRef = useRef(provides);
+  providesRef.current = provides;
+  useEffect(() => () => providesRef.current?.stopSearch(), []);
+  // Search as you type (debounced) so results appear without pressing Enter.
+  useEffect(() => {
+    if (!provides) return;
+    const term = q.trim();
+    const id = setTimeout(() => {
+      if (term) provides.searchAllPages(term);
+      else provides.stopSearch();
+    }, 250);
+    return () => clearTimeout(id);
+  }, [q, provides]);
+  // Scroll the page to the active match whenever it changes (first/next/prev).
+  useEffect(() => {
+    if (!provides) return;
+    return provides.onActiveResultChange((ev: number | { index: number }) => {
+      const idx = typeof ev === 'number' ? ev : ev.index;
+      const r = resultsRef.current?.[idx];
+      const rect = r?.rects?.[0];
+      if (r && rect && scrollApi) {
+        scrollApi.scrollToPage({
+          pageNumber: r.pageIndex + 1,
+          pageCoordinates: { x: rect.origin.x, y: rect.origin.y },
+        });
+      }
+    });
+  }, [provides, scrollApi]);
+  const total = state?.total ?? 0;
+  const active = total > 0 ? (state?.activeResultIndex ?? 0) + 1 : 0;
+  return (
+    <div className="cpdf__search" role="search">
+      <Icon name="search" size={16} />
+      <input
+        ref={inputRef}
+        type="text"
+        aria-label="Find in document"
+        placeholder="Find in document…"
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') e.shiftKey ? provides?.previousResult() : provides?.nextResult();
+          if (e.key === 'Escape') onClose();
+        }}
+      />
+      <span className="cpdf__search-count">{state?.loading ? '…' : `${active}/${total}`}</span>
+      <IconButton icon="chevron-left" label="Previous match" disabled={total === 0} onClick={() => provides?.previousResult()} />
+      <IconButton icon="chevron-right" label="Next match" disabled={total === 0} onClick={() => provides?.nextResult()} />
+      {canRedact && onRedactMatches && (
+        <>
+          <span className="cpdf__sep" aria-hidden="true" />
+          <IconButton
+            icon="redact"
+            label={`Redact all ${total} match${total === 1 ? '' : 'es'}`}
+            disabled={total === 0}
+            onClick={() => onRedactMatches(state?.results ?? [])}
+          />
+        </>
+      )}
+      <IconButton icon="close" label="Close find" onClick={onClose} />
+    </div>
+  );
+}
+
+/* ── Left drawer: thumbnails / outline ────────────────────────────────────── */
+function ThumbnailSidebar({ documentId, onClose }: { documentId: string; onClose: () => void }) {
+  const { state, provides } = useScroll(documentId);
+  const current = state?.currentPage ?? 1;
+  return (
+    <aside className="cpdf__panel" aria-label="Page thumbnails">
+      <div className="cpdf__panel-head">
+        <span>Pages</span>
+        <IconButton icon="close" label="Close thumbnails" onClick={onClose} />
+      </div>
+      <div className="cpdf__panel-body" style={{ padding: 0 }}>
+        <ThumbnailsPane documentId={documentId} style={{ height: '100%', overflow: 'auto' }}>
+          {(m) => (
+            <button
+              key={m.pageIndex}
+              type="button"
+              className="cpdf__thumb"
+              data-current={current === m.pageIndex + 1 ? 'true' : undefined}
+              aria-label={`Go to page ${m.pageIndex + 1}`}
+              aria-current={current === m.pageIndex + 1 ? 'page' : undefined}
+              style={{ position: 'absolute', top: m.top, left: 0, right: 0, height: m.wrapperHeight }}
+              onClick={() => provides?.scrollToPage({ pageNumber: m.pageIndex + 1 })}
+            >
+              <ThumbImg documentId={documentId} meta={m} style={{ width: m.width, height: m.height }} />
+              <span className="cpdf__thumb-n">{m.pageIndex + 1}</span>
+            </button>
+          )}
+        </ThumbnailsPane>
+      </div>
+    </aside>
+  );
+}
+
+function OutlineSidebar({ documentId, onClose }: { documentId: string; onClose: () => void }) {
+  const { provides } = useBookmarkCapability();
+  const { provides: scrollApi } = useScroll(documentId);
+  const [items, setItems] = useState<Bookmark[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    const scope = provides?.forDocument(documentId);
+    if (!scope) {
+      // No bookmark capability yet — don't spin forever; show the empty state.
+      setLoaded(true);
+      return;
+    }
+    scope
+      .getBookmarks()
+      .toPromise()
+      .then((res) => {
+        if (!cancelled) {
+          setItems((res?.bookmarks ?? []) as Bookmark[]);
+          setLoaded(true);
+        }
+      })
+      .catch(() => !cancelled && setLoaded(true));
+    return () => {
+      cancelled = true;
+    };
+  }, [provides, documentId]);
+  const go = (bm: Bookmark) => {
+    const t = bm.target;
+    if (t?.type === 'destination' && t.destination) scrollApi?.scrollToPage({ pageNumber: t.destination.pageIndex + 1 });
+  };
+  const tree = (nodes: Bookmark[], depth = 0): ReactNode =>
+    nodes.map((bm, i) => (
+      <Fragment key={`${depth}-${i}-${bm.title}`}>
+        <button type="button" className="cpdf__outline-item" style={{ paddingLeft: 8 + depth * 14 }} onClick={() => go(bm)}>
+          {bm.title}
+        </button>
+        {bm.children?.length ? tree(bm.children, depth + 1) : null}
+      </Fragment>
+    ));
+  return (
+    <aside className="cpdf__panel" aria-label="Document outline">
+      <div className="cpdf__panel-head">
+        <span>Outline</span>
+        <IconButton icon="close" label="Close outline" onClick={onClose} />
+      </div>
+      <div className="cpdf__panel-body">
+        {!loaded ? (
+          <div className="cpdf__empty">
+            <span className="cpdf__spinner" aria-hidden="true" />
+            <span className="cpdf__empty-title">Loading outline…</span>
+          </div>
+        ) : items.length ? (
+          tree(items)
+        ) : (
+          <div className="cpdf__empty">
+            <span className="cpdf__empty-icon">
+              <Icon name="outline" size={28} />
+            </span>
+            <span className="cpdf__empty-title">No outline</span>
+            <span className="cpdf__empty-hint">This document has no bookmarks or table of contents.</span>
+          </div>
+        )}
+      </div>
+    </aside>
+  );
+}
+
+/* ── Comments / annotations review panel: every annotation in the document,
+   click to scroll to + select it. ─────────────────────────────────────────── */
+/** Relative "2m ago" style time from an epoch-ms stamp. */
+function agoLabel(ts: number): string {
+  const s = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+  if (s < 60) return 'just now';
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
+}
+
+/** Render a body with @handles emphasised. */
+function renderBody(body: string): React.ReactNode {
+  return body.split(/(@[A-Za-z0-9._-]+)/g).map((part, i) =>
+    part.startsWith('@') ? (
+      <strong key={i} className="cpdf__mention">
+        {part}
+      </strong>
+    ) : (
+      <span key={i}>{part}</span>
+    ),
+  );
+}
+
+/** One thread: root + replies + a reply box; resolve/reopen + delete. */
+function CommentThreadCard({
+  thread,
+  canEdit,
+  flash,
+  onJump,
+  onReply,
+  onResolve,
+  onDelete,
+}: {
+  thread: CommentThread;
+  canEdit: boolean;
+  flash?: boolean;
+  onJump: (page: number) => void;
+  onReply: (threadId: string, body: string) => void;
+  onResolve: (threadId: string, resolved: boolean) => void;
+  onDelete: (id: string) => void;
+}) {
+  const [reply, setReply] = useState('');
+  const { root, replies, resolved } = thread;
+  const submit = () => {
+    if (reply.trim()) {
+      onReply(root.threadId, reply);
+      setReply('');
+    }
+  };
+  return (
+    <div
+      className={`cpdf__thread${resolved ? ' cpdf__thread--resolved' : ''}${flash ? ' cpdf__thread--flash' : ''}`}
+      data-testid="comment-thread"
+      data-thread-id={root.threadId}
+    >
+      <div className="cpdf__thread-head">
+        <button type="button" className="cpdf__thread-anchor" onClick={() => onJump(root.page)} title="Go to page">
+          <Icon name="comments" size={13} /> p.{root.page + 1}
+        </button>
+        <span className="cpdf__thread-spacer" />
+        {resolved && <span className="cpdf__thread-badge">Resolved</span>}
+        {canEdit && (
+          <IconButton
+            icon={resolved ? 'undo' : 'check'}
+            label={resolved ? 'Reopen thread' : 'Resolve thread'}
+            onClick={() => onResolve(root.threadId, !resolved)}
+          />
+        )}
+        {canEdit && <IconButton icon="trash" label="Delete thread" onClick={() => onDelete(root.id)} />}
+      </div>
+      {[root, ...replies].map((c) => (
+        <div key={c.id} className="cpdf__msg">
+          <div className="cpdf__msg-meta">
+            <span className="cpdf__msg-author">{c.author}</span>
+            <span className="cpdf__msg-time">{agoLabel(c.createdAt)}</span>
+          </div>
+          <div className="cpdf__msg-body" data-testid="comment-body">{renderBody(c.body)}</div>
+        </div>
+      ))}
+      {canEdit && !resolved && (
+        <div className="cpdf__reply">
+          <input
+            className="cpdf__reply-input"
+            data-testid="comment-reply-input"
+            aria-label="Reply to this comment thread"
+            placeholder="Reply… (@ to mention)"
+            value={reply}
+            onChange={(e) => setReply(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                submit();
+              }
+            }}
+          />
+          <button type="button" className="cpdf__reply-send" disabled={!reply.trim()} onClick={submit}>
+            Reply
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CommentsSidebar({
+  documentId,
+  comments,
+  currentPage,
+  canEdit,
+  anchor,
+  onAnchorUsed,
+  focusThreadId,
+  onFocusHandled,
+  onClose,
+}: {
+  documentId: string;
+  comments: CommentsState;
+  currentPage: number;
+  canEdit: boolean;
+  anchor: { page: number; rect: [number, number, number, number] } | null;
+  onAnchorUsed: () => void;
+  focusThreadId: string | null;
+  onFocusHandled: () => void;
+  onClose: () => void;
+}) {
+  const { provides: scrollApi } = useScroll(documentId);
+  const { state: anno, provides: scope } = useAnnotation(documentId);
+  void anno; // re-read the annotation index on any change
+  const [draft, setDraft] = useState('');
+  const [showResolved, setShowResolved] = useState(false);
+  const [flash, setFlash] = useState<string | null>(null);
+  // Scroll to + briefly highlight a thread when its on-page marker is clicked.
+  useEffect(() => {
+    if (!focusThreadId) return;
+    const el = document.querySelector(`[data-thread-id="${focusThreadId}"]`);
+    el?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    setFlash(focusThreadId);
+    onFocusHandled();
+    const t = setTimeout(() => setFlash(null), 1600);
+    return () => clearTimeout(t);
+  }, [focusThreadId, onFocusHandled]);
+  const jump = (page: number) => scrollApi?.scrollToPage({ pageNumber: page + 1 });
+  // Secondary "Annotations" index (the panel is labelled "Comments & annotations").
+  const annos = (scope?.getAnnotations() ?? [])
+    .slice()
+    .sort((a, b) => a.object.pageIndex - b.object.pageIndex || (a.object.rect?.origin.y ?? 0) - (b.object.rect?.origin.y ?? 0));
+  const annoMeta = (obj: { contents?: string }, toolId?: string): { icon: IconName; label: string } => {
+    const t = TOOLS.find((x) => x.id === toolId);
+    const note = (obj.contents ?? '').trim();
+    return { icon: t?.icon ?? 'note', label: note || t?.label?.replace(' box', '') || 'Annotation' };
+  };
+  const goAnno = (pageIndex: number, id: string) => {
+    scrollApi?.scrollToPage({ pageNumber: pageIndex + 1 });
+    scope?.selectAnnotation(pageIndex, id);
+  };
+  const postComment = () => {
+    if (!draft.trim()) return;
+    // Anchor to the captured text selection (region) if present, else the page.
+    if (anchor) {
+      comments.addComment(anchor.page, anchor.rect, draft);
+      onAnchorUsed();
+    } else {
+      comments.addComment(currentPage - 1, null, draft);
+    }
+    setDraft('');
+  };
+  const open = comments.threads.filter((t) => !t.resolved);
+  const done = comments.threads.filter((t) => t.resolved);
+  const shown = showResolved ? comments.threads : open;
+  return (
+    <aside className="cpdf__panel" aria-label="Comments">
+      <div className="cpdf__panel-head">
+        <span>Comments</span>
+        <IconButton icon="close" label="Close comments" onClick={onClose} />
+      </div>
+      {canEdit && (
+        <div className="cpdf__comment-new">
+          {anchor && (
+            <div className="cpdf__comment-anchor" data-testid="comment-anchor-chip">
+              <Icon name="comments" size={12} />
+              <span>Commenting on selected text · p.{anchor.page + 1}</span>
+              <button type="button" className="cpdf__comment-anchor-x" aria-label="Clear anchor" onClick={onAnchorUsed}>
+                ×
+              </button>
+            </div>
+          )}
+          <textarea
+            className="cpdf__comment-new-input"
+            data-testid="comment-new-input"
+            aria-label="New comment"
+            placeholder={anchor ? 'Comment on the selected text… (@ to mention)' : `Comment on page ${currentPage}… (@ to mention)`}
+            value={draft}
+            rows={2}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                e.preventDefault();
+                postComment();
+              }
+            }}
+          />
+          <div className="cpdf__comment-new-actions">
+            <span className="cpdf__comment-new-hint">⌘⏎ to post</span>
+            <button type="button" className="cpdf__reply-send" data-testid="comment-submit" disabled={!draft.trim()} onClick={postComment}>
+              Comment
+            </button>
+          </div>
+        </div>
+      )}
+      <div className="cpdf__panel-body">
+        {comments.threads.length === 0 ? (
+          <div className="cpdf__empty">
+            <span className="cpdf__empty-icon">
+              <Icon name="comments" size={28} />
+            </span>
+            <span className="cpdf__empty-title">No comments yet</span>
+            <span className="cpdf__empty-hint">
+              {canEdit ? 'Start a discussion on this page above.' : 'Comments will appear here.'}
+            </span>
+          </div>
+        ) : (
+          <>
+            {shown.map((t) => (
+              <CommentThreadCard
+                key={t.root.id}
+                thread={t}
+                canEdit={canEdit}
+                flash={flash === t.root.threadId}
+                onJump={jump}
+                onReply={comments.addReply}
+                onResolve={comments.resolve}
+                onDelete={comments.remove}
+              />
+            ))}
+            {done.length > 0 && (
+              <button type="button" className="cpdf__comment-resolved-toggle" onClick={() => setShowResolved((v) => !v)}>
+                {showResolved ? 'Hide' : 'Show'} {done.length} resolved
+              </button>
+            )}
+          </>
+        )}
+        {annos.length > 0 && (
+          <div className="cpdf__anno-index">
+            <div className="cpdf__anno-index-head">Annotations</div>
+            {annos.map((a) => {
+              const m = annoMeta(a.object, scope?.findToolForAnnotation(a.object)?.id);
+              return (
+                <button
+                  key={a.object.id}
+                  type="button"
+                  className="cpdf__comment-row"
+                  onClick={() => goAnno(a.object.pageIndex, a.object.id)}
+                >
+                  <span className="cpdf__comment-row-icon">
+                    <Icon name={m.icon} size={16} />
+                  </span>
+                  <span className="cpdf__comment-row-text">{m.label}</span>
+                  <span className="cpdf__comment-row-page">p.{a.object.pageIndex + 1}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </aside>
+  );
+}
+
+/* ── On-page comment markers: a clickable pin at each anchored thread's rect.
+   Maps the stored PDF-point rect → a fraction of the page (y-flipped, since PDF
+   origin is bottom-left) and positions the pin at the rect's top-left. Click opens
+   the thread in the panel. Rendered in every mode so readers see where comments
+   are. ─────────────────────────────────────────────────────────────────────── */
+function CommentMarkersLayer({
+  documentId,
+  pageIndex,
+  threads,
+  onOpen,
+}: {
+  documentId: string;
+  pageIndex: number;
+  threads: CommentThread[];
+  onOpen: (threadId: string) => void;
+}) {
+  const { provides: docCap } = useDocumentManagerCapability();
+  const size = docCap?.getDocument(documentId)?.pages?.[pageIndex]?.size as
+    | { width: number; height: number }
+    | undefined;
+  const onPage = threads.filter((t) => t.page === pageIndex && t.rect && !t.resolved);
+  if (!size || !onPage.length) return null;
+  return (
+    <div className="cpdf__comment-markers" style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
+      {onPage.map((t) => {
+        const [x0, , , y1] = t.rect as [number, number, number, number];
+        const left = Math.max(0, Math.min(100, (x0 / size.width) * 100));
+        const top = Math.max(0, Math.min(100, (1 - y1 / size.height) * 100));
+        return (
+          <button
+            key={t.root.id}
+            type="button"
+            className="cpdf__comment-marker"
+            data-testid="comment-marker"
+            style={{ position: 'absolute', left: `${left}%`, top: `${top}%`, pointerEvents: 'auto' }}
+            title={`Comment by ${t.root.author}: ${t.root.body.slice(0, 60)}`}
+            aria-label={`Comment by ${t.root.author} on page ${pageIndex + 1}`}
+            onClick={() => onOpen(t.root.threadId)}
+          >
+            <Icon name="comments" size={12} />
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ── Signatures panel: request-to-sign (recipients + order), signing status, the
+   audit trail, and certificate download. Rides the collab signing model. ─────── */
+const SIGN_STATUS_LABEL: Record<EnvelopeStatus, string> = {
+  draft: 'Draft',
+  sent: 'Sent',
+  viewed: 'Viewed',
+  partially_signed: 'Partially signed',
+  completed: 'Completed',
+  declined: 'Declined',
+  voided: 'Voided',
+};
+
+function RequestSignaturesForm({ signing }: { signing: SigningState }) {
+  const [title, setTitle] = useState('');
+  const [order, setOrder] = useState<'parallel' | 'sequential'>('parallel');
+  const [recips, setRecips] = useState<NewRecipient[]>([{ name: '', email: '', role: 'signer' }]);
+  const [busy, setBusy] = useState(false);
+  const submittingRef = useRef(false); // synchronous double-submit guard (M2)
+  const update = (i: number, patch: Partial<NewRecipient>) => setRecips((rs) => rs.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+  const clean = recips.filter((r) => r.name.trim() && r.email.trim());
+  const hasSigner = clean.some((r) => r.role === 'signer'); // an all-cc envelope can never complete (M4)
+  const submit = async () => {
+    if (!clean.length || !hasSigner || submittingRef.current) return;
+    submittingRef.current = true;
+    setBusy(true);
+    try {
+      await signing.createRequest(title.trim() || 'Signature request', order, clean);
+    } finally {
+      submittingRef.current = false;
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="cpdf__sign-form">
+      <input className="cpdf__sign-input" aria-label="Document title" placeholder="Document title" value={title} onChange={(e) => setTitle(e.target.value)} />
+      {recips.map((r, i) => (
+        <div key={i} className="cpdf__sign-recip">
+          <input className="cpdf__sign-input" aria-label={`Recipient ${i + 1} name`} placeholder="Name" value={r.name} onChange={(e) => update(i, { name: e.target.value })} />
+          <input className="cpdf__sign-input" type="email" aria-label={`Recipient ${i + 1} email`} placeholder="Email" value={r.email} onChange={(e) => update(i, { email: e.target.value })} />
+          <select className="cpdf__sign-input" value={r.role} onChange={(e) => update(i, { role: e.target.value as NewRecipient['role'] })} aria-label="Role">
+            <option value="signer">Signer</option>
+            <option value="cc">CC</option>
+          </select>
+          {recips.length > 1 && (
+            <button type="button" className="cpdf__sign-recip-x" aria-label="Remove recipient" onClick={() => setRecips((rs) => rs.filter((_, j) => j !== i))}>
+              ×
+            </button>
+          )}
+        </div>
+      ))}
+      <button type="button" className="cpdf__sign-add" onClick={() => setRecips((rs) => [...rs, { name: '', email: '', role: 'signer' }])}>
+        + Add recipient
+      </button>
+      <label className="cpdf__sign-order">
+        <input type="checkbox" checked={order === 'sequential'} onChange={(e) => setOrder(e.target.checked ? 'sequential' : 'parallel')} />
+        <span>Sign in order (each waits for the previous)</span>
+      </label>
+      {!hasSigner && clean.length > 0 && <span className="cpdf__sign-hint">Add at least one Signer (CC recipients can’t complete a request).</span>}
+      <button type="button" className="cpdf__reply-send" data-testid="sign-request-submit" disabled={!clean.length || !hasSigner || busy} onClick={submit}>
+        {busy ? 'Sending…' : 'Request signatures'}
+      </button>
+    </div>
+  );
+}
+
+/** One recipient row. When it's this signer's turn, an ESIGN §7001 consent
+   checkbox must be ticked before the Sign button enables — the consent event is
+   then recorded ahead of the signature. */
+function SignerRow({ signer, canSignNow, onSign }: { signer: Signer; canSignNow: boolean; onSign: () => void }) {
+  const [consented, setConsented] = useState(false);
+  return (
+    <div className="cpdf__sign-signer" data-testid="sign-signer">
+      <div className="cpdf__sign-signer-id">
+        <strong>{signer.name}</strong> <span>{signer.email}</span>
+      </div>
+      <div className="cpdf__sign-signer-meta">
+        {signer.role} · <span data-testid="sign-signer-status">{signer.status}</span>
+      </div>
+      {canSignNow && (
+        <>
+          <label className="cpdf__sign-consent">
+            <input type="checkbox" data-testid="sign-consent" checked={consented} onChange={(e) => setConsented(e.target.checked)} />
+            <span>I agree to sign this document electronically (ESIGN/eIDAS).</span>
+          </label>
+          <button type="button" className="cpdf__reply-send" data-testid="sign-now" disabled={!consented} onClick={onSign}>
+            Sign as {signer.name.split(' ')[0] || 'signer'}
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
+function SigningStatus({ signing, envelope, canEdit }: { signing: SigningState; envelope: SigningEnvelope; canEdit: boolean }) {
+  const terminal = envelope.status === 'completed' || envelope.status === 'voided' || envelope.status === 'declined';
+  return (
+    <div className="cpdf__sign-status">
+      <div className="cpdf__sign-envelope">
+        <span className="cpdf__sign-doctitle">{envelope.title}</span>
+        <span className={`cpdf__sign-badge cpdf__sign-badge--${envelope.status}`} data-testid="sign-status">
+          {SIGN_STATUS_LABEL[envelope.status]}
+        </span>
+      </div>
+      {envelope.signers.map((s) => (
+        <SignerRow key={s.id} signer={s} canSignNow={canEdit && canSign(envelope, s.id)} onSign={() => signing.sign(s.id)} />
+      ))}
+      <div className="cpdf__sign-actions">
+        {envelope.status === 'completed' && (
+          <button type="button" className="cpdf__reply-send" data-testid="sign-download-cert" onClick={() => signing.downloadCertificate()}>
+            Download certificate
+          </button>
+        )}
+        {canEdit && !terminal && (
+          <button type="button" className="cpdf__sign-void" onClick={() => signing.voidRequest()}>
+            Void request
+          </button>
+        )}
+      </div>
+      <div className="cpdf__sign-audit">
+        <div className="cpdf__sign-audit-head">Audit trail</div>
+        {envelope.events.map((e, i) => (
+          <div key={i} className="cpdf__sign-event">
+            <span className="cpdf__sign-event-type">{e.type}</span> · {e.actor}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function SigningSidebar({ signing, canEdit, onClose }: { signing: SigningState; canEdit: boolean; onClose: () => void }) {
+  const { envelope } = signing;
+  return (
+    <aside className="cpdf__panel" aria-label="Signatures">
+      <div className="cpdf__panel-head">
+        <span>Signatures</span>
+        <IconButton icon="close" label="Close signatures" onClick={onClose} />
+      </div>
+      <div className="cpdf__panel-body">
+        {!envelope ? (
+          canEdit ? (
+            <RequestSignaturesForm signing={signing} />
+          ) : (
+            <div className="cpdf__empty">
+              <span className="cpdf__empty-icon">
+                <Icon name="sign" size={28} />
+              </span>
+              <span className="cpdf__empty-title">No signature request</span>
+              <span className="cpdf__empty-hint">Switch to Edit to request signatures.</span>
+            </div>
+          )
+        ) : (
+          <SigningStatus signing={signing} envelope={envelope} canEdit={canEdit} />
+        )}
+      </div>
+    </aside>
+  );
+}
+
+/* ── Pending-suggestion styling (collab Suggest mode). A DISPLAY-ONLY overlay that
+   outlines each suggested annotation's rect — it reads the suggestion list from the
+   Yjs model and never touches the annotation object, so (unlike the reverted opacity
+   fade) it can't pollute the round-trip on echo/edit. Maps the stored PDF-point rect
+   → page fraction (y-flipped, matching the redact-from-selection math). The container
+   is overflow-hidden so a stray box can never create a scrollbar. ────────────── */
+function SuggestionOverlayLayer({
+  documentId,
+  pageIndex,
+  suggestions,
+}: {
+  documentId: string;
+  pageIndex: number;
+  suggestions: AnnotationData[];
+}) {
+  const { provides: docCap } = useDocumentManagerCapability();
+  const size = docCap?.getDocument(documentId)?.pages?.[pageIndex]?.size as
+    | { width: number; height: number }
+    | undefined;
+  const onPage = suggestions.filter((s) => s.page === pageIndex && Array.isArray(s.rect) && s.rect.length === 4);
+  if (!size || !onPage.length) return null;
+  return (
+    <div
+      className="cpdf__suggestion-overlay"
+      style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden' }}
+      aria-hidden="true"
+    >
+      {onPage.map((s) => {
+        const [x0, y0, x1, y1] = s.rect;
+        // The annotation plugin's rect is TOP-LEFT origin (unlike selection rects,
+        // which are PDF bottom-left) — verified by the 2-client E2E's position
+        // check — so map directly with NO y-flip.
+        const left = (Math.min(x0, x1) / size.width) * 100;
+        const top = (Math.min(y0, y1) / size.height) * 100;
+        const w = (Math.abs(x1 - x0) / size.width) * 100;
+        const h = (Math.abs(y1 - y0) / size.height) * 100;
+        return (
+          <div
+            key={s.id}
+            className="cpdf__suggestion-box"
+            data-testid="suggestion-box"
+            style={{ position: 'absolute', left: `${left}%`, top: `${top}%`, width: `${w}%`, height: `${h}%` }}
+            title={`Suggested by ${s.author}`}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+/* ── Remote cursors (collab). Broadcasts this client's pointer position over this
+   page (fractional, throttled) via awareness, and renders peers' cursors on the
+   page. Coords come from the interaction manager in page-point space (same as
+   annotation rects → top-left, no y-flip); fractions map to the same spot at any
+   zoom. Container is overflow-hidden and pointer-events:none (never blocks input
+   or causes a scrollbar). ────────────────────────────────────────────────────── */
+function CursorLayer({
+  documentId,
+  pageIndex,
+  peers,
+  onMove,
+  onLeave,
+}: {
+  documentId: string;
+  pageIndex: number;
+  peers: Peer[];
+  onMove: (page: number, x: number, y: number) => void;
+  onLeave: () => void;
+}) {
+  const { provides: docCap } = useDocumentManagerCapability();
+  const { register } = usePointerHandlers({ modeId: 'pointerMode', pageIndex, documentId });
+  const size = docCap?.getDocument(documentId)?.pages?.[pageIndex]?.size as
+    | { width: number; height: number }
+    | undefined;
+  const sizeRef = useRef(size);
+  sizeRef.current = size;
+  const lastSent = useRef(0);
+  useEffect(() => {
+    return register({
+      onPointerMove: (pos: { x: number; y: number }) => {
+        const s = sizeRef.current;
+        if (!s) return;
+        const now = Date.now();
+        if (now - lastSent.current < 55) return; // throttle awareness updates
+        lastSent.current = now;
+        onMove(pageIndex, pos.x / s.width, pos.y / s.height);
+      },
+      // Clear our broadcast cursor when the pointer leaves the page, so peers don't
+      // see a frozen ghost cursor (e.g. after scrolling to another page).
+      onPointerLeave: () => onLeave(),
+    });
+  }, [register, pageIndex, onMove, onLeave]);
+
+  const here = peers.filter((p) => p.cursor && p.cursor.page === pageIndex);
+  if (!here.length) return null;
+  return (
+    <div className="cpdf__cursors" style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden' }} aria-hidden="true">
+      {here.map((p) => (
+        <div
+          key={p.clientId}
+          className="cpdf__cursor"
+          data-testid="remote-cursor"
+          style={{ position: 'absolute', left: `${p.cursor!.x * 100}%`, top: `${p.cursor!.y * 100}%`, color: p.color || '#4658ff' }}
+        >
+          <svg width="15" height="18" viewBox="0 0 15 18" fill="currentColor" aria-hidden="true">
+            <path d="M1 1l4 15 2.5-5.5L13 8z" stroke="#fff" strokeWidth="1" />
+          </svg>
+          <span className="cpdf__cursor-label" style={{ background: p.color || '#4658ff' }}>
+            {p.name}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ── Read-only sticky-note popup shown on the page when a comment is selected
+   (used in View mode for reading). Editing happens in the properties panel —
+   EmbedPDF's selection-menu container can't host a focusable textarea. ────── */
+type NoteObj = { id: string; pageIndex: number; contents?: string };
+function StickyComment({ note }: { note: NoteObj }) {
+  const text = (note.contents ?? '').trim();
+  return (
+    <div className="cpdf__sticky" onPointerDown={(e) => e.stopPropagation()}>
+      <div className="cpdf__sticky-head">
+        <Icon name="note" size={14} />
+        Comment
+      </div>
+      <div className="cpdf__sticky-body" data-empty={text ? undefined : 'true'}>
+        {text || 'No comment yet'}
+      </div>
+    </div>
+  );
+}
+
+/* ── Organize Pages: reorder/delete pages, then rebuild the doc (engine
+   mergePages) and reload it (openDocumentBuffer). ─────────────────────────── */
+type MergeEngine = {
+  mergePages: (configs: { docId: string; pageIndices: number[] }[]) => { toPromise: () => Promise<{ content: ArrayBuffer }> };
+} | null | undefined;
+function OrganizeOverlay({
+  documentId,
+  engine,
+  totalPages,
+  onClose,
+  onApplied,
+  onDocumentReplaced,
+}: {
+  documentId: string;
+  engine: MergeEngine;
+  totalPages: number;
+  onClose: () => void;
+  onApplied?: () => void;
+  onDocumentReplaced?: (bytes: Uint8Array) => void;
+}) {
+  const { provides: docCap } = useDocumentManagerCapability();
+  const [order, setOrder] = useState<number[]>(() => Array.from({ length: totalPages }, (_, i) => i));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  // Escape closes the overlay (unless mid-apply).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !busy) {
+        e.preventDefault();
+        onClose();
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [busy, onClose]);
+  const move = (i: number, dir: -1 | 1) =>
+    setOrder((o) => {
+      const j = i + dir;
+      if (j < 0 || j >= o.length) return o;
+      const n = [...o];
+      [n[i], n[j]] = [n[j], n[i]];
+      return n;
+    });
+  const del = (i: number) => setOrder((o) => (o.length > 1 ? o.filter((_, k) => k !== i) : o));
+  const apply = async () => {
+    if (!engine || !docCap || !order.length) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const file = await engine.mergePages([{ docId: documentId, pageIndices: order }]).toPromise();
+      if (onDocumentReplaced) {
+        onDocumentReplaced(new Uint8Array(file.content));
+      } else {
+        await docCap.openDocumentBuffer({ buffer: file.content, name: 'organized.pdf', autoActivate: true }).toPromise();
+      }
+      onApplied?.();
+      onClose();
+    } catch {
+      setError("Couldn't apply the page changes. Try again.");
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="cpdf__organize" role="dialog" aria-modal="true" aria-label="Organize pages">
+      <div className="cpdf__organize-bar">
+        <span className="cpdf__organize-title">Organize pages</span>
+        <span className="cpdf__organize-hint">{error ? error : `${order.length} page${order.length === 1 ? '' : 's'}`}</span>
+        <div className="cpdf__organize-acts">
+          <button type="button" className="cpdf__btn" onClick={onClose} disabled={busy}>
+            Cancel
+          </button>
+          <button type="button" className="cpdf__btn cpdf__btn--primary" onClick={apply} disabled={busy || !order.length}>
+            {busy ? 'Applying…' : 'Apply'}
+          </button>
+        </div>
+      </div>
+      <div className="cpdf__organize-grid">
+        {order.map((pageIndex, i) => (
+          <div key={pageIndex} className="cpdf__organize-cell">
+            <div className="cpdf__organize-thumb">
+              <RenderLayer documentId={documentId} pageIndex={pageIndex} scale={0.22} aria-label={`Page ${pageIndex + 1}`} />
+            </div>
+            <div className="cpdf__organize-cellbar">
+              <button type="button" className="cpdf-iconbtn" title="Move left" aria-label="Move left" disabled={i === 0} onClick={() => move(i, -1)}>
+                <Icon name="chevron-left" size={16} />
+              </button>
+              <span className="cpdf__organize-num">{i + 1}</span>
+              <button type="button" className="cpdf-iconbtn" title="Move right" aria-label="Move right" disabled={i === order.length - 1} onClick={() => move(i, 1)}>
+                <Icon name="chevron-right" size={16} />
+              </button>
+              <button type="button" className="cpdf-iconbtn" title="Delete page" aria-label="Delete page" onClick={() => del(i)}>
+                <Icon name="trash" size={16} />
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ── E-signature: draw or type a signature, then place it on the page ─────────
+   The pads emit a field definition (ink for draw, image-stamp for type) via
+   onResult; "Add signature" stores it (addEntry) and activates placement — the
+   signature plugin turns that into the signatureStamp/signatureInk annotation
+   tool, so the next click/drag on a page drops a real annotation that renders
+   through the AnnotationLayer (and bakes into the PDF on Download/export). */
+const SIG_INK_COLORS = ['#1a3b8c', '#1f2430', '#0a6b3b'];
+const SIG_FONTS = [
+  { label: 'Signature', family: '"Brush Script MT","Segoe Script",cursive' },
+  { label: 'Formal', family: 'Georgia,"Times New Roman",serif' },
+  { label: 'Print', family: '"Helvetica Neue",Arial,sans-serif' },
+];
+function SignatureModal({ documentId, onClose }: { documentId: string; onClose: () => void }) {
+  const { provides: cap } = useSignatureCapability();
+  const [tab, setTab] = useState<'draw' | 'type'>('draw');
+  const [draw, setDraw] = useState<SignatureInkFieldDefinition | null>(null);
+  const [typed, setTyped] = useState<SignatureStampFieldDefinition | null>(null);
+  const [color, setColor] = useState(SIG_INK_COLORS[0]);
+  const [font, setFont] = useState(SIG_FONTS[0].family);
+  const drawPadRef = useRef<SignatureDrawPadHandle | null>(null);
+  const typePadRef = useRef<SignatureTypePadHandle | null>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const result = tab === 'draw' ? draw : typed;
+
+  // Modal a11y: focus in, Escape to close, trap Tab within the dialog, restore
+  // focus to the opener on close.
+  useEffect(() => {
+    const opener = document.activeElement as HTMLElement | null;
+    closeRef.current?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        onClose();
+        return;
+      }
+      if (e.key === 'Tab' && dialogRef.current) {
+        const focusable = Array.from(
+          dialogRef.current.querySelectorAll<HTMLElement>(
+            'button, [href], input, textarea, select, [tabindex]:not([tabindex="-1"])',
+          ),
+        ).filter((el) => !el.hasAttribute('disabled') && el.offsetParent !== null);
+        if (!focusable.length) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        const active = document.activeElement as HTMLElement;
+        if (!dialogRef.current.contains(active)) {
+          e.preventDefault();
+          first.focus();
+        } else if (e.shiftKey && active === first) {
+          e.preventDefault();
+          last.focus();
+        } else if (!e.shiftKey && active === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      if (opener && opener.isConnected && opener !== document.body) opener.focus();
+    };
+  }, [onClose]);
+
+  const clear = () => {
+    if (tab === 'draw') {
+      drawPadRef.current?.clear();
+      setDraw(null);
+    } else {
+      typePadRef.current?.clear();
+      setTyped(null);
+    }
+  };
+  const place = () => {
+    if (!cap || !result) return;
+    const entryId = cap.addEntry({ signature: result });
+    cap.forDocument(documentId).activateSignaturePlacement(entryId);
+    onClose();
+  };
+
+  return (
+    <div className="cpdf__scrim" role="presentation" onClick={onClose}>
+      <div
+        ref={dialogRef}
+        className="cpdf__sigmodal"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Add a signature"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="cpdf__sigmodal-head">
+          <span className="cpdf__sigmodal-title">Add your signature</span>
+          <IconButton icon="close" label="Close" onClick={onClose} />
+        </div>
+        <div className="cpdf__sigtabs" role="tablist" aria-label="Signature type">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === 'draw'}
+            className="cpdf__sigtab"
+            data-active={tab === 'draw' ? 'true' : undefined}
+            onClick={() => setTab('draw')}
+          >
+            <Icon name="draw" size={18} />
+            Draw
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === 'type'}
+            className="cpdf__sigtab"
+            data-active={tab === 'type' ? 'true' : undefined}
+            onClick={() => setTab('type')}
+          >
+            <Icon name="keyboard" size={18} />
+            Type
+          </button>
+        </div>
+
+        <div className="cpdf__sigbody">
+          {tab === 'draw' ? (
+            <SignatureDrawPad
+              padRef={(h) => (drawPadRef.current = h)}
+              onResult={setDraw}
+              strokeColor={color}
+              strokeWidth={3}
+              className="cpdf__sigpad"
+            />
+          ) : (
+            <SignatureTypePad
+              padRef={(h) => (typePadRef.current = h)}
+              onResult={setTyped}
+              fontFamily={font}
+              fontSize={48}
+              color={color}
+              placeholder="Type your name"
+              className="cpdf__sigpad"
+            />
+          )}
+        </div>
+
+        <div className="cpdf__sigopts">
+          <div className="cpdf__field">
+            <span className="cpdf__field-label">Color</span>
+            <div className="cpdf__swatches">
+              {SIG_INK_COLORS.map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  className="cpdf__swatch"
+                  data-active={c === color ? 'true' : undefined}
+                  style={{ background: c }}
+                  aria-label={`Ink color ${c}`}
+                  aria-pressed={c === color}
+                  onClick={() => setColor(c)}
+                />
+              ))}
+              {(() => {
+                const isCustom = !SIG_INK_COLORS.includes(color);
+                return (
+                  <label
+                    className="cpdf__swatch cpdf__swatch--custom"
+                    data-active={isCustom ? 'true' : undefined}
+                    title="Custom ink color"
+                    style={isCustom ? { background: color } : undefined}
+                  >
+                    <input
+                      type="color"
+                      aria-label="Custom ink color"
+                      value={/^#[0-9a-fA-F]{6}$/.test(color) ? color : SIG_INK_COLORS[0]}
+                      onChange={(e) => setColor(e.target.value)}
+                    />
+                  </label>
+                );
+              })()}
+            </div>
+          </div>
+          {tab === 'type' && (
+            <div className="cpdf__field">
+              <span className="cpdf__field-label">Style</span>
+              <div className="cpdf__widths">
+                {SIG_FONTS.map((f) => (
+                  <button
+                    key={f.label}
+                    type="button"
+                    className="cpdf__opbtn"
+                    data-active={f.family === font ? 'true' : undefined}
+                    aria-pressed={f.family === font}
+                    style={{ fontFamily: f.family }}
+                    onClick={() => setFont(f.family)}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="cpdf__sigfoot">
+          <button type="button" className="cpdf__btn" onClick={clear}>
+            <Icon name="refresh" size={16} />
+            Clear
+          </button>
+          <span style={{ flex: 1 }} />
+          <button ref={closeRef} type="button" className="cpdf__btn" onClick={onClose}>
+            Cancel
+          </button>
+          <button type="button" className="cpdf__btn cpdf__btn--primary" disabled={!result} onClick={place}>
+            Add signature
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** When a signature placement is armed, a banner tells the user to click a page
+ *  to drop it (and offers a cancel). Driven by the signature plugin's active
+ *  placement for this document. */
+function PlacementBanner({ documentId }: { documentId: string }) {
+  const placement = useActivePlacement(documentId);
+  const { provides: cap } = useSignatureCapability();
+  if (!placement) return null;
+  return (
+    <div className="cpdf__placebanner" role="status">
+      <Icon name="sign" size={18} />
+      <span>Click on a page to place your signature</span>
+      <button type="button" className="cpdf__btn" onClick={() => cap?.forDocument(documentId).deactivatePlacement()}>
+        Cancel
+      </button>
+    </div>
+  );
+}
+
+/* ── Collab presence (remote peers) ───────────────────────────────────────── */
+function PresenceStack({ peers }: { peers: Peer[] }) {
+  const shown = peers.slice(0, 5);
+  const extra = peers.length - shown.length;
+  return (
+    <div
+      className="cpdf__presence"
+      role="group"
+      aria-label={`${peers.length} collaborator${peers.length === 1 ? '' : 's'} online`}
+    >
+      {shown.map((p) => {
+        const label = p.page ? `${p.name} · page ${p.page}` : p.name;
+        return (
+          <span
+            key={p.clientId}
+            className="cpdf__presence-avatar"
+            title={label}
+            aria-label={label}
+            style={{ background: p.color ?? 'var(--color-accent, #2563eb)' }}
+          >
+            {initials(p.name)}
+          </span>
+        );
+      })}
+      {extra > 0 && (
+        <span className="cpdf__presence-avatar cpdf__presence-more" title={`${extra} more`}>+{extra}</span>
+      )}
+    </div>
+  );
+}
+
+/* ── Collab suggestions (pending Suggest-mode proposals) ──────────────────── */
+function SuggestionsPanel({
+  suggestions,
+  onAccept,
+  onReject,
+}: {
+  suggestions: AnnotationData[];
+  onAccept: (id: string) => void;
+  onReject: (id: string) => void;
+}) {
+  return (
+    <aside
+      className="cpdf__suggestions"
+      aria-label={`${suggestions.length} pending suggestion${suggestions.length === 1 ? '' : 's'}`}
+    >
+      <div className="cpdf__suggestions-head">
+        <Icon name="suggest" size={16} />
+        <span>Suggestions ({suggestions.length})</span>
+      </div>
+      <ul className="cpdf__suggestions-list">
+        {suggestions.map((s) => (
+          <li key={s.id} className="cpdf__suggestion">
+            <div className="cpdf__suggestion-meta">
+              <span className="cpdf__suggestion-type">{s.type}</span>
+              <span className="cpdf__suggestion-sub">
+                {s.author || 'someone'} · p.{(s.page ?? 0) + 1}
+              </span>
+            </div>
+            <div className="cpdf__suggestion-actions">
+              <button
+                type="button"
+                className="cpdf-iconbtn"
+                title="Accept suggestion"
+                aria-label={`Accept ${s.type} suggestion`}
+                onClick={() => onAccept(s.id)}
+              >
+                <Icon name="check" size={16} />
+              </button>
+              <button
+                type="button"
+                className="cpdf-iconbtn"
+                title="Reject suggestion"
+                aria-label={`Reject ${s.type} suggestion`}
+                onClick={() => onReject(s.id)}
+              >
+                <Icon name="trash" size={16} />
+              </button>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </aside>
+  );
+}
+
+/* ── The viewer ───────────────────────────────────────────────────────────── */
+export function Viewer({
+  documentId,
+  mode,
+  onModeChange,
+  apiRef,
+  onEdited,
+  onDocumentReplaced,
+  onUndo,
+  onRedo,
+  collab,
+  identity,
+  engine,
+}: {
+  documentId: string;
+  mode: Mode;
+  onModeChange?: (m: Mode) => void;
+  apiRef?: MutableRefObject<CasualPdfApi | null>;
+  onEdited?: () => void;
+  onDocumentReplaced?: (bytes: Uint8Array) => void;
+  onUndo?: () => void;
+  onRedo?: () => void;
+  collab?: CollabConfig;
+  identity?: Identity;
+  engine?: MergeEngine;
+}) {
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [leftPanel, setLeftPanel] = useState<LeftPanel>(null);
+  // Pending comment anchor captured from a text selection (page + rect in page
+  // points) → the next comment posted in the panel anchors to it, not the page.
+  const [commentAnchor, setCommentAnchor] = useState<{ page: number; rect: [number, number, number, number] } | null>(null);
+  // Thread to scroll to + highlight in the panel (set when an on-page marker is clicked).
+  const [commentFocus, setCommentFocus] = useState<string | null>(null);
+  const [hasSelection, setHasSelection] = useState(false);
+  const [organizing, setOrganizing] = useState(false);
+  const [signing, setSigning] = useState(false);
+  const [pendingImage, setPendingImage] = useState<PendingImage | null>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const [redacting, setRedacting] = useState(false);
+  const [redactions, setRedactions] = useState<RedactRect[]>([]);
+  // Tier-2 text editing: `editBytes` is the current document bytes the PDFium
+  // edit core operates on; set when the tool activates and after each commit.
+  const [textEditing, setTextEditing] = useState(false);
+  const [editBytes, setEditBytes] = useState<Uint8Array | null>(null);
+  // True once at least one text-edit commit has been made; triggers an
+  // onDocumentReplaced call on exit so the text layer re-indexes.
+  const [editBusy, setEditBusy] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [editNote, setEditNote] = useState<string | null>(null);
+  const [textRunsReady, setTextRunsReady] = useState(false);
+  // Overlay-replace mode (docs/TEXT-EDITING.md, "Option A"): commit by covering
+  // the old run + drawing new text on top (pure pdf-lib) instead of rewriting the
+  // page content stream — no reflow/justification damage. Off by default (the
+  // direct PDFium edit keeps the text searchable/selectable). Ref so the async
+  // commit reads the latest value.
+  const [overlayMode, setOverlayMode] = useState(false);
+  const overlayModeRef = useRef(false);
+  overlayModeRef.current = overlayMode;
+  // Overlay "Secure (flatten)" sub-mode: rasterize the edited page so the covered
+  // original text is truly removed (reuses the redaction flatten). Only meaningful
+  // with overlayMode on. Trade-off: the edited page becomes an image.
+  const [overlayBake, setOverlayBake] = useState(false);
+  const overlayBakeRef = useRef(false);
+  overlayBakeRef.current = overlayBake;
+  // Refs for editBytes/editDirty so the mode→view teardown effect can read
+  // current values without listing them as deps (which would re-run the effect
+  // on every commit and wipe in-progress edits).
+  const editBytesRef = useRef<Uint8Array | null>(null);
+  const editDirtyRef = useRef(false);
+  const onDocumentReplacedRef = useRef(onDocumentReplaced);
+  onDocumentReplacedRef.current = onDocumentReplaced;
+  // Monotonically increasing id for redaction marks — stable identity for React
+  // keys and filter-by-id (avoids reference-equality issues after state updates).
+  const redactIdCounter = useRef(0);
+  const nextRedactId = () => { redactIdCounter.current += 1; return redactIdCounter.current; };
+  // Per-session text-edit undo/redo stacks (one Uint8Array per commit, capped at 20).
+  // Used by apiRef undo/redo when textEditing is true; cleared on exit.
+  const textEditUndoStackRef = useRef<Uint8Array[]>([]);
+  const textEditRedoStackRef = useRef<Uint8Array[]>([]);
+  // Stable refs so apiRef callbacks always read the latest values without needing
+  // them as useEffect deps (which would re-create the API object on every commit).
+  const textEditingRef = useRef(false);
+  textEditingRef.current = textEditing;
+  const editBusyRef = useRef(false);
+  editBusyRef.current = editBusy;
+
+  // H-4: clear text-edit error/note when a NEW document is opened — but NOT on
+  // the documentId changes that every in-session text-edit commit causes
+  // (openDocumentBuffer), which would instantly wipe the note the commit just set
+  // (font-substitution / residual / overlay disclosures). Guard on textEditing.
+  useEffect(() => {
+    if (textEditingRef.current) return;
+    setEditError(null);
+    setEditNote(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [documentId]);
+
+  const [redactBusy, setRedactBusy] = useState(false);
+  const [redactError, setRedactError] = useState<string | null>(null);
+  const [confirmRedact, setConfirmRedact] = useState(false);
+  // Redaction method (user decision 2026-07-06): 'text' = surgical — remove the
+  // text under each region from the file + box it, keeping the rest of the page
+  // as real text (auto-falls-back to flattening any page it can't cleanly clear);
+  // 'flatten' = secure whole-page image (removes text/images/vectors — for
+  // non-text content). Text is the common case, so it's the default.
+  const [redactMode, setRedactMode] = useState<'text' | 'flatten'>('text');
+  const toggleLeft = (p: 'thumbs' | 'outline' | 'comments' | 'signatures') => setLeftPanel((cur) => (cur === p ? null : p));
+  const { state: docScroll, provides: scrollProvides } = useScroll(documentId);
+  const totalPages = docScroll?.totalPages ?? 0;
+  const { provides: bookmarkCap } = useBookmarkCapability();
+
+  const { state: anno, provides: annoApi } = useAnnotation(documentId);
+  const { provides: annoCap } = useAnnotationCapability();
+  const { provides: formCap } = useFormCapability();
+  // Live collaboration (no-op when `collab` is omitted): bind this document's
+  // annotation plugin bidirectionally to a Yjs room + surface remote peers and
+  // pending suggestions. The form capability powers co-filling AcroForm fields.
+  const { peers, suggestions, acceptSuggestion, rejectSuggestion, setActivePage, setCursor, model: collabModel } = useCollab(
+    (annoApi ?? undefined) as unknown as AnnotationCapabilityLike | undefined,
+    documentId,
+    collab,
+    identity,
+    mode,
+    (formCap ?? undefined) as unknown as FormCapabilityLike | undefined,
+  );
+  // Threaded comments ride the shared Yjs doc when collab is on (sync peer→peer),
+  // or a local per-document doc when solo. Same panel either way.
+  const comments = useComments(documentId, collabModel, identity?.name ?? 'You');
+  // Broadcast our current page to peers (presence "where"). No-op in solo mode.
+  const currentPage = docScroll?.currentPage;
+  useEffect(() => {
+    if (currentPage) setActivePage(currentPage);
+  }, [currentPage, setActivePage]);
+  // Stable so CursorLayer doesn't re-register its pointer handler each render.
+  const broadcastCursor = useCallback((page: number, x: number, y: number) => setCursor({ page, x, y }), [setCursor]);
+  const clearCursor = useCallback(() => setCursor(null), [setCursor]);
+  const { provides: selectionCap } = useSelectionCapability();
+  const { provides: history } = useHistoryCapability();
+  const { provides: exportCap } = useExportCapability();
+  const { provides: renderCap } = useRenderCapability();
+  const { provides: docCap } = useDocumentManagerCapability();
+  // Request-to-sign workflow (rides the shared doc in collab, local when solo).
+  const signingGetBytes = useCallback(async (): Promise<Uint8Array | null> => {
+    if (!exportCap) return null;
+    const ab = await exportCap.saveAsCopy().toPromise();
+    return ab ? new Uint8Array(ab) : null;
+  }, [exportCap]);
+  const signingFlow = useSigning(documentId, collabModel, identity?.name ?? 'You', signingGetBytes);
+  // Ref so text-edit undo/redo callbacks (defined in the apiRef effect) can
+  // access the latest docCap without listing it as an effect dependency.
+  const docCapRef = useRef(docCap);
+  docCapRef.current = docCap;
+  // Refs so the imperative apiRef methods (below) read the latest scroll/bookmark
+  // capabilities without rebuilding the API on every scroll-state change.
+  const scrollProvidesRef = useRef(scrollProvides);
+  scrollProvidesRef.current = scrollProvides;
+  const bookmarkCapRef = useRef(bookmarkCap);
+  bookmarkCapRef.current = bookmarkCap;
+  const { provides: sigCap } = useSignatureCapability();
+  const signaturePlacement = useActivePlacement(documentId);
+  const { rotation: viewRotation, provides: rotateApi } = useRotate(documentId);
+  const { state: fs } = useFullscreen();
+  // Internal clipboard for copy/paste of annotations (stores annotation objects).
+  const clipboardRef = useRef<Parameters<NonNullable<typeof annoApi>['createAnnotation']>[1][]>([]);
+  const activeToolId = anno?.activeToolId ?? null;
+  // Presentation mode: full screen is a clean reading view — hide editing chrome.
+  const presenting = fs.isFullscreen;
+  const editing = mode !== 'view' && !presenting;
+  // Refs so the imperative apiRef handlers (below) see the current mode without
+  // re-subscribing — used to auto-enter Edit when the AI proposes redaction marks
+  // (RedactionLayer only renders while editing, so View would hide them).
+  const modeRef = useRef(mode);
+  modeRef.current = mode;
+  const onModeChangeRef = useRef(onModeChange);
+  onModeChangeRef.current = onModeChange;
+  // Text is selectable whenever no drawing tool is active — i.e. View mode and
+  // the Select tool in Edit/Suggest (activeToolId === null) — plus while a
+  // text-markup tool is active (highlight/underline/…). It's only OFF for the
+  // shape/ink/text/note tools that own the drag to draw. The AnnotationLayer
+  // sits on top and still captures clicks on existing annotations, so selecting
+  // text (over glyphs) and selecting/moving annotations coexist.
+  // SelectionLayer must be off while text-edit mode is active: the interaction
+  // manager routes pointer events to SelectionLayer before they reach the
+  // TextEditLayer's native button elements, causing "selecting a char" instead
+  // of opening the inline editor on click.
+  const textSelectable = (activeToolId === null || MARKUP_TOOLS.has(activeToolId)) && !redacting && !textEditing;
+
+  // Selection mini-toolbar: turn the current text selection into a markup
+  // annotation (one per page the selection spans), using the selection's
+  // formatted rects, then clear the selection.
+  const applyMarkup = (toolId: 'highlight' | 'underline' | 'strikeout') => {
+    if (!annoApi || !selectionCap) return;
+    const subtype = MARKUP_SUBTYPE[toolId];
+    const isHighlight = toolId === 'highlight';
+    const color = isHighlight ? '#f5d90a' : '#e8453c';
+    for (const s of selectionCap.getFormattedSelection(documentId) ?? []) {
+      annoApi.createAnnotation(s.pageIndex, {
+        type: subtype,
+        id: genId(),
+        pageIndex: s.pageIndex,
+        rect: s.rect,
+        segmentRects: s.segmentRects,
+        strokeColor: color,
+        opacity: isHighlight ? 0.4 : 1,
+      } as Parameters<NonNullable<typeof annoApi>['createAnnotation']>[1]);
+    }
+    selectionCap.clear(documentId);
+  };
+  const copySelection = () => {
+    selectionCap?.copyToClipboard(documentId);
+    selectionCap?.clear(documentId);
+  };
+  // Anchor a comment to the current text selection: capture the first segment's
+  // page + bounding rect (page points), open the Comments panel, clear selection.
+  const commentSelection = () => {
+    const sel = selectionCap?.getFormattedSelection(documentId) ?? [];
+    if (!sel.length) return;
+    const s = sel[0];
+    const r = s.rect as { origin: { x: number; y: number }; size: { width: number; height: number } };
+    setCommentAnchor({
+      page: s.pageIndex,
+      rect: [r.origin.x, r.origin.y, r.origin.x + r.size.width, r.origin.y + r.size.height],
+    });
+    setLeftPanel('comments');
+    selectionCap?.clear(documentId);
+  };
+  // Track whether text is selected, to show the selection mini-toolbar. Gate on
+  // the *formatted* selection (rects for actually-spanned glyphs) rather than the
+  // raw range — a plain click yields a collapsed range (start === end) with no
+  // rects, which would otherwise float the toolbar over an empty selection (e.g.
+  // right after placing a signature, when the SelectionLayer remounts).
+  useEffect(() => {
+    if (!selectionCap) return;
+    return selectionCap.onSelectionChange(() =>
+      setHasSelection((selectionCap.getFormattedSelection(documentId)?.length ?? 0) > 0),
+    );
+  }, [selectionCap, documentId]);
+  // Hide the selection mini-toolbar while the search panel is open — both
+  // float at the same top-center position and would visually collide.
+  const showSelTools = editing && activeToolId === null && hasSelection && !searchOpen;
+
+  // Imperative API for host menus.
+  useEffect(() => {
+    if (!apiRef) return;
+    apiRef.current = {
+      download: () => exportCap?.download(),
+      canUndo: () => textEditingRef.current
+        ? textEditUndoStackRef.current.length > 0
+        : history?.canUndo() ?? false,
+      canRedo: () => textEditingRef.current
+        ? textEditRedoStackRef.current.length > 0
+        : history?.canRedo() ?? false,
+      undo: () => {
+        if (textEditingRef.current) {
+          if (editBusyRef.current || textEditUndoStackRef.current.length === 0) return;
+          const curr = editBytesRef.current;
+          const prev = textEditUndoStackRef.current.pop()!;
+          if (curr) textEditRedoStackRef.current.push(curr);
+          editBytesRef.current = prev; setEditBytes(prev);
+          const buf = prev.buffer.slice(prev.byteOffset, prev.byteOffset + prev.byteLength) as ArrayBuffer;
+          void docCapRef.current?.openDocumentBuffer({ buffer: buf, name: 'edited.pdf', autoActivate: true }).toPromise();
+        } else { history?.undo(); }
+      },
+      redo: () => {
+        if (textEditingRef.current) {
+          if (editBusyRef.current || textEditRedoStackRef.current.length === 0) return;
+          const curr = editBytesRef.current;
+          const next = textEditRedoStackRef.current.pop()!;
+          if (curr) textEditUndoStackRef.current.push(curr);
+          editBytesRef.current = next; setEditBytes(next);
+          const buf = next.buffer.slice(next.byteOffset, next.byteOffset + next.byteLength) as ArrayBuffer;
+          void docCapRef.current?.openDocumentBuffer({ buffer: buf, name: 'edited.pdf', autoActivate: true }).toPromise();
+        } else { history?.redo(); }
+      },
+      deleteSelection: () => {
+        const sel = annoApi?.getSelectedAnnotations() ?? [];
+        if (annoApi && sel.length) annoApi.deleteAnnotations(sel.map((a) => ({ pageIndex: a.object.pageIndex, id: a.object.id })));
+      },
+      setTool: (id) => annoApi?.setActiveTool(id),
+      openSearch: () => setSearchOpen(true),
+      openSignature: () => {
+        annoApi?.setActiveTool(null);
+        annoApi?.deselectAnnotation();
+        setPendingImage(null);
+        setRedacting(false);
+        setTextEditing(false);
+        setSigning(true);
+      },
+      hasVisibleSignature: () => {
+        const anns = annoApi?.getAnnotations() ?? [];
+        return anns.some((a) => {
+          const toolId = annoApi?.findToolForAnnotation(a.object)?.id ?? null;
+          return toolId === 'signatureStamp' || toolId === 'signatureInk';
+        });
+      },
+      getBytes: async () => {
+        if (!exportCap) return null;
+        const ab = await exportCap.saveAsCopy().toPromise();
+        return ab ? new Uint8Array(ab) : null;
+      },
+      // ── Read / navigation surface (Phase A0 — AI DocOps tool bridge) ─────────
+      pageCount: () => docCapRef.current?.getDocument(documentId)?.pages?.length ?? 0,
+      gotoPage: (pageIndex) => scrollProvidesRef.current?.scrollToPage({ pageNumber: Math.max(1, pageIndex + 1) }),
+      getOutline: async () => {
+        const scope = bookmarkCapRef.current?.forDocument(documentId);
+        if (!scope) return [];
+        const res = await scope.getBookmarks().toPromise();
+        const map = (nodes: Bookmark[]): OutlineNode[] =>
+          nodes.map((bm) => ({
+            title: bm.title,
+            pageIndex:
+              bm.target?.type === 'destination' && bm.target.destination
+                ? bm.target.destination.pageIndex
+                : null,
+            children: bm.children?.length ? map(bm.children) : [],
+          }));
+        return map((res?.bookmarks ?? []) as Bookmark[]);
+      },
+      extractText: async (pageIndex) => {
+        if (!exportCap) return null;
+        const ab = await exportCap.saveAsCopy().toPromise();
+        if (!ab) return null;
+        const { extractPageText } = await import('../extract');
+        return extractPageText(new Uint8Array(ab), pageIndex);
+      },
+      extractAllText: async () => {
+        // One export, then extract every page from those same bytes (RAG-lite).
+        if (!exportCap) return [];
+        const ab = await exportCap.saveAsCopy().toPromise();
+        if (!ab) return [];
+        const bytes = new Uint8Array(ab);
+        const { extractPageText } = await import('../extract');
+        const count = docCapRef.current?.getDocument(documentId)?.pages?.length ?? 0;
+        const out = [];
+        for (let i = 0; i < count; i++) out.push(await extractPageText(bytes, i));
+        return out;
+      },
+      highlightRegion: (pageIndex, rects) => {
+        // extractText rects are PDF user space (bottom-left) — the SAME space as
+        // annotation rects, so this is just a shape change (no Y-flip).
+        if (!annoApi || !rects.length) return;
+        const segs = rects.map((r) => ({
+          origin: { x: r.left, y: r.bottom },
+          size: { width: r.right - r.left, height: r.top - r.bottom },
+        }));
+        const minX = Math.min(...segs.map((s) => s.origin.x));
+        const minY = Math.min(...segs.map((s) => s.origin.y));
+        const maxX = Math.max(...segs.map((s) => s.origin.x + s.size.width));
+        const maxY = Math.max(...segs.map((s) => s.origin.y + s.size.height));
+        annoApi.createAnnotation(pageIndex, {
+          type: MARKUP_SUBTYPE.highlight,
+          id: genId(),
+          pageIndex,
+          rect: { origin: { x: minX, y: minY }, size: { width: maxX - minX, height: maxY - minY } },
+          segmentRects: segs,
+          strokeColor: '#f5d90a',
+          opacity: 0.4,
+        } as Parameters<NonNullable<typeof annoApi>['createAnnotation']>[1]);
+        scrollProvidesRef.current?.scrollToPage({ pageNumber: pageIndex + 1 });
+      },
+      addRedactionMarks: (pageIndex, rects) => {
+        // extractText frac is already fractional top-left {x,y,w,h} — the exact
+        // RedactRect shape. AI proposes marks only; the user confirms Apply.
+        if (!rects.length) return;
+        // Marks only render (and are reviewable) in Edit — switch out of View so
+        // the user actually SEES what will be redacted before Apply.
+        if (modeRef.current === 'view') onModeChangeRef.current?.('edit');
+        setRedactions((prev) => [
+          ...prev,
+          ...rects.map((r) => ({ id: nextRedactId(), pageIndex, x: r.x, y: r.y, w: r.w, h: r.h })),
+        ]);
+        setRedacting(true);
+        scrollProvidesRef.current?.scrollToPage({ pageNumber: pageIndex + 1 });
+      },
+      listFormFields: async () => {
+        if (!exportCap) return [];
+        const ab = await exportCap.saveAsCopy().toPromise();
+        if (!ab) return [];
+        const { listFormFields } = await import('../ai/form');
+        return listFormFields(new Uint8Array(ab));
+      },
+      fillForm: async (values) => {
+        if (!exportCap) return { filled: [], skipped: values.map((v) => v.name) };
+        const ab = await exportCap.saveAsCopy().toPromise();
+        if (!ab) return { filled: [], skipped: values.map((v) => v.name) };
+        const { fillFormFields } = await import('../ai/form');
+        const res = await fillFormFields(new Uint8Array(ab), values);
+        // Reload the viewer with the filled bytes (same path as redact/organize).
+        const replaced = onDocumentReplacedRef.current;
+        if (replaced) {
+          replaced(res.bytes);
+        } else {
+          const buffer = res.bytes.buffer.slice(res.bytes.byteOffset, res.bytes.byteOffset + res.bytes.byteLength) as ArrayBuffer;
+          await docCapRef.current?.openDocumentBuffer({ buffer, name: 'filled.pdf', autoActivate: true }).toPromise();
+        }
+        return { filled: res.filled, skipped: res.skipped };
+      },
+    };
+    return () => {
+      if (apiRef) apiRef.current = null;
+    };
+  }, [apiRef, annoApi, history, exportCap, setSearchOpen, documentId]);
+
+  // Preload PDFium WASM as soon as the user enters Edit/Suggest mode so
+  // the "Edit text" tool has no perceptible delay on first click.
+  useEffect(() => {
+    if (mode !== 'view') {
+      import('../textedit-pdfium').then(({ preloadPdfium }) => preloadPdfium());
+    }
+  }, [mode]);
+
+  // Text tools default to the placeholder contents "Insert text", and editing
+  // appends to it (so a new box reads "Insert textyour words"). Clear the
+  // default so text boxes/callouts start empty and the user just types.
+  useEffect(() => {
+    if (!annoCap) return;
+    for (const id of ['freeText', 'freeTextCallout', 'textComment']) {
+      try {
+        annoCap.setToolDefaults(id, { contents: '' });
+      } catch {
+        /* tool may not be registered in this build */
+      }
+    }
+  }, [annoCap]);
+
+  // Insert image: pick a PNG/JPEG, read its bytes + natural aspect, then arm
+  // placement (the next page click drops it as an image STAMP annotation).
+  const onImageFile = async (file: File) => {
+    const mimeType = file.type === 'image/png' ? 'image/png' : file.type === 'image/jpeg' ? 'image/jpeg' : null;
+    if (!mimeType) return;
+    const data = await file.arrayBuffer();
+    let w = 1;
+    let h = 1;
+    try {
+      const bmp = await createImageBitmap(file);
+      w = bmp.width;
+      h = bmp.height;
+      bmp.close();
+    } catch {
+      /* aspect falls back to 1:1 if the bitmap can't be decoded */
+    }
+    annoApi?.setActiveTool(null); // select mode → the placer's pointer handler is live
+    annoApi?.deselectAnnotation();
+    setRedacting(false);
+    deactivateTextEdit();
+    setPendingImage({ data, mimeType, w, h });
+  };
+
+  // Full text-edit teardown: flush dirty edits (fires onDocumentReplaced so the
+  // host re-indexes the text layer), release the byte snapshot, and clear the
+  // per-session undo/redo stacks. Shared by toggleTextEdit's exit branch and by
+  // the other editors that must be mutually exclusive with text edit (redact,
+  // image, sign, organize) so activating one can't leave text-edit stacked
+  // underneath it (two placement banners, leaked editBytes).
+  const deactivateTextEdit = () => {
+    if (!textEditing) return;
+    if (editDirtyRef.current && editBytesRef.current && onDocumentReplacedRef.current) {
+      onDocumentReplacedRef.current(editBytesRef.current);
+    }
+    setTextEditing(false);
+    editBytesRef.current = null; setEditBytes(null);
+    editDirtyRef.current = false;
+    setTextRunsReady(false);
+    textEditUndoStackRef.current = [];
+    textEditRedoStackRef.current = [];
+  };
+
+  // Close every inline editing tool. Used when opening a modal editor (Sign /
+  // Organize) so those are mutually exclusive with the inline tools too.
+  const closeInlineEditors = () => {
+    annoApi?.setActiveTool(null);
+    annoApi?.deselectAnnotation();
+    setRedacting(false);
+    setPendingImage(null);
+    deactivateTextEdit();
+  };
+
+  // Redaction: toggle marking mode (mutually exclusive with annotation tools /
+  // image placement / text edit), and apply — rasterize + flatten each marked page.
+  const toggleRedact = () => {
+    if (redacting) {
+      setRedacting(false);
+      return;
+    }
+    // Side effects run outside a state updater (updaters must stay pure — React
+    // StrictMode double-invokes them, which would fire onDocumentReplaced twice).
+    annoApi?.setActiveTool(null);
+    annoApi?.deselectAnnotation();
+    setPendingImage(null);
+    deactivateTextEdit();
+    setRedactError(null);
+    // Redaction works in the page's native orientation so captured marks and
+    // the rendered bitmap share one coordinate space. Reset any view rotation.
+    rotateApi?.setRotation(Rotation.Degree0);
+    setRedacting(true);
+  };
+  const SCALE = 2; // render scale for flattened pages (2× for crisp output)
+  // Redaction = rasterize-and-flatten (the secure default; immune to the
+  // de-redaction attacks that defeat surgical text removal — see the research
+  // note in docs). Each marked page is rendered at 2× in its NATIVE orientation,
+  // opaque black boxes are painted over the marks, and the page is rebuilt
+  // PRESERVING its MediaBox/CropBox/Rotate (buildRedactedPdf). Untouched pages
+  // are copied verbatim (keeping their text). The surgical wasm path is shelved
+  // until it's a fail-closed interpreter (it under-redacts on XObjects/Type3).
+  const applyRedactions = async () => {
+    setConfirmRedact(false);
+    if (!renderCap || !docCap || !exportCap || !redactions.length) return;
+    setRedactBusy(true);
+    setRedactError(null);
+    try {
+      const ab = await exportCap.saveAsCopy().toPromise();
+      if (!ab) throw new Error('Could not read the document.');
+      const srcBytes = new Uint8Array(ab);
+      const pageIndices = [...new Set(redactions.map((r) => r.pageIndex))];
+      // Render + flatten the given pages (secure image) from the current viewer
+      // document, painting the black boxes. Shared by 'flatten' mode and the
+      // 'text'-mode fallback for pages surgical couldn't cleanly clear.
+      const flattenPages = async (base: Uint8Array, pages: number[]): Promise<Uint8Array> => {
+        const scope = renderCap.forDocument(documentId);
+        const flattened: { pageIndex: number; png: Uint8Array }[] = [];
+        for (const pi of pages) {
+          const blob = await scope.renderPage({ pageIndex: pi, options: { scaleFactor: SCALE, withAnnotations: true } }).toPromise();
+          if (!blob) throw new Error(`Couldn't render page ${pi + 1} for redaction.`);
+          flattened.push({ pageIndex: pi, png: await flattenPage(blob, redactions.filter((r) => r.pageIndex === pi)) });
+        }
+        const { buildRedactedPdf } = await import('../redact');
+        return buildRedactedPdf(base, flattened);
+      };
+
+      let out: Uint8Array;
+      if (redactMode === 'text') {
+        // CHAR-LEVEL surgical via the Rust core (lopdf, wasm): removes ONLY the
+        // glyphs under each mark at the byte level (position-preserving, whole
+        // removed runs collapsed to one advance so per-glyph widths don't leak),
+        // handles simple + Type0/Identity-CID fonts, and paints the black boxes —
+        // the rest of the page stays selectable text. Then VERIFY each page and
+        // flatten any the core couldn't fully clear (exotic CMaps) so nothing leaks.
+        const { redactSurgical } = await import('../redact-core');
+        let surgical: Awaited<ReturnType<typeof redactSurgical>> | null = null;
+        try {
+          surgical = await redactSurgical(srcBytes, redactions);
+        } catch {
+          surgical = null; // core couldn't process → whole fallback below
+        }
+        if (!surgical) {
+          out = await flattenPages(srcBytes, pageIndices);
+        } else {
+          // The core self-reports the pages it couldn't remove confidently (a
+          // font/CMap it can't decode, or a Form XObject it doesn't descend into);
+          // flatten exactly those so nothing leaks, keep the rest as real text.
+          const bad = surgical.lowConfidencePages.filter((pi) => pageIndices.includes(pi));
+          out = bad.length ? await flattenPages(surgical.bytes, bad) : surgical.bytes;
+        }
+      } else {
+        out = await flattenPages(srcBytes, pageIndices);
+      }
+      if (onDocumentReplaced) {
+        onDocumentReplaced(out);
+      } else {
+        const buffer = out.buffer.slice(out.byteOffset, out.byteOffset + out.byteLength) as ArrayBuffer;
+        await docCap.openDocumentBuffer({ buffer, name: 'redacted.pdf', autoActivate: true }).toPromise();
+      }
+      onEdited?.();
+      setRedactions([]);
+      setRedacting(false);
+    } catch (e) {
+      // Keep the marks so the user can retry, and surface the failure — never
+      // silently no-op on a trust feature.
+      setRedactError(e instanceof Error ? e.message : 'Redaction failed. Nothing was changed.');
+    } finally {
+      setRedactBusy(false);
+    }
+  };
+
+  // Tier-2 text editing: activate → snapshot the current bytes for the PDFium
+  // edit core to operate on; deactivate other tools. Commit → editTextRun on the
+  // snapshot, reload the result, and keep the snapshot current for further edits.
+  const toggleTextEdit = async () => {
+    if (textEditing) {
+      // deactivateTextEdit fires onDocumentReplaced when edits were made so the
+      // host swaps src to a new Blob URL — triggering EmbedPDF to re-index the
+      // text layer (search/selection fix). In-session commits used
+      // openDocumentBuffer (no remount) so the re-index is deferred to here.
+      deactivateTextEdit();
+      return;
+    }
+    if (!exportCap) return;
+    annoApi?.setActiveTool(null);
+    annoApi?.deselectAnnotation();
+    setRedacting(false);
+    setPendingImage(null);
+    // PDFium WASM is already warmed by the useEffect that fires on mode→Edit.
+    // Do NOT call preloadPdfium() here again — it would fire a second redundant import.
+    const ab = await exportCap.saveAsCopy().toPromise();
+    if (!ab) return;
+    const bytes = new Uint8Array(ab);
+    editBytesRef.current = bytes; setEditBytes(bytes);
+    setTextEditing(true);
+  };
+  // Synchronous in-flight guard (set/cleared immediately, unlike the async
+  // editBusy state) + a one-slot queue so a commit that arrives while another is
+  // running is deferred, never dropped. The child's editBusy *prop* can lag a
+  // render behind, so it may call onCommit directly mid-commit; this catches it.
+  const commitInFlightRef = useRef(false);
+  const pendingParentCommitRef = useRef<[number, number, number[], string] | null>(null);
+  const commitTextEdit = async (pageIndex: number, objectIndex: number, objectIndices: number[], newText: string) => {
+    if (!editBytesRef.current || !docCap) return;
+    if (commitInFlightRef.current) {
+      pendingParentCommitRef.current = [pageIndex, objectIndex, objectIndices, newText];
+      return;
+    }
+    commitInFlightRef.current = true;
+    setEditBusy(true);
+    setEditError(null);
+    try {
+      let out: Uint8Array;
+      let substituted: boolean;
+      let residual: boolean;
+      // The direct (PDFium) path can only encode WinAnsi — it fails closed on
+      // CJK / non-Latin text. Route such edits through the overlay path, which
+      // embeds a covering font (matched, or a Noto fallback) so Unicode renders.
+      const { firstUnencodable } = await import('../textedit-pdfium');
+      const needsUnicode = firstUnencodable(newText) != null;
+      const autoOverlayForUnicode = needsUnicode && !overlayModeRef.current;
+      if (overlayModeRef.current || needsUnicode) {
+        // Overlay-replace: derive the run's bounds + style from the current
+        // bytes, then cover + retype via pdf-lib (no content-stream rewrite).
+        const { listTextRuns } = await import('../textedit-pdfium');
+        const runs = await listTextRuns(editBytesRef.current, pageIndex);
+        const run = runs.find((r) => r.index === objectIndex);
+        if (!run) throw new Error('Could not locate the text to edit.');
+        if (overlayBakeRef.current && renderCap) {
+          // Secure overlay: render the page, paint the cover box + new text on the
+          // canvas, and rebuild the page as an image (reusing the redaction flatten)
+          // — the original glyphs are rasterized away, not merely covered.
+          const size = docCap.getDocument(documentId)?.pages?.[pageIndex]?.size as { width: number; height: number } | undefined;
+          if (!size) throw new Error('Could not read the page size for a secure edit.');
+          const blob = await renderCap.forDocument(documentId).renderPage({ pageIndex, options: { scaleFactor: SCALE, withAnnotations: true } }).toPromise();
+          if (!blob) throw new Error(`Could not render page ${pageIndex + 1} to bake the edit.`);
+          const pad = Math.max(0.5, run.fontSizePt * 0.06);
+          const png = await flattenPageWithOverlay(blob, {
+            x: (run.left - pad) / size.width,
+            y: (size.height - run.top - pad) / size.height,
+            w: (run.right - run.left + pad * 2) / size.width,
+            h: (run.top - run.bottom + pad * 2) / size.height,
+            baselineY: (size.height - (run.bottom + run.fontSizePt * 0.2)) / size.height,
+            fontSizeFrac: run.fontSizePt / size.height,
+            text: newText,
+            fontFamily: run.fontFamily,
+            fontWeight: run.fontWeight,
+            fontItalic: run.fontItalic,
+            color: run.color,
+            bg: 'white',
+          });
+          const { buildRedactedPdf } = await import('../redact');
+          out = await buildRedactedPdf(editBytesRef.current, [{ pageIndex, png }]);
+          substituted = true;
+          residual = false; // rasterized → the original text is truly removed
+        } else {
+          // Best-effort: render the page and sample the background so the cover
+          // box blends on non-white pages (falls back to white in buildOverlayEdit).
+          let bgColor: [number, number, number] | undefined;
+          const size = docCap.getDocument(documentId)?.pages?.[pageIndex]?.size as { width: number; height: number } | undefined;
+          if (renderCap && size) {
+            try {
+              const blob = await renderCap.forDocument(documentId).renderPage({ pageIndex, options: { scaleFactor: 1, withAnnotations: true } }).toPromise();
+              const pad = Math.max(0.5, run.fontSizePt * 0.06);
+              if (blob) {
+                bgColor = (await sampleBgFromBlob(blob, {
+                  x: (run.left - pad) / size.width,
+                  y: (size.height - run.top - pad) / size.height,
+                  w: (run.right - run.left + pad * 2) / size.width,
+                  h: (run.top - run.bottom + pad * 2) / size.height,
+                })) ?? undefined;
+              }
+            } catch {
+              /* sampling is best-effort — fall back to white */
+            }
+          }
+          // Option C: match a bundled metric-compatible font (Arimo for
+          // Arial/Helvetica) so the edit keeps the apparent typeface instead of a
+          // generic standard-14 substitute. Best-effort — falls back on any error.
+          let matchedFontBytes: Uint8Array | undefined;
+          try {
+            const { resolveEditFont } = await import('../textedit-fonts');
+            const rf = await resolveEditFont(run.fontBaseName, run.fontWeight, run.fontItalic, newText, needsUnicode);
+            if (rf) matchedFontBytes = rf.bytes;
+          } catch {
+            /* fall back to the standard substitute */
+          }
+          const { buildOverlayEdit } = await import('../textedit-overlay');
+          const overlayResult = await buildOverlayEdit(
+            editBytesRef.current,
+            pageIndex,
+            { left: run.left, bottom: run.bottom, right: run.right, top: run.top },
+            newText,
+            { fontFamily: run.fontFamily, fontSizePt: run.fontSizePt, fontWeight: run.fontWeight, fontItalic: run.fontItalic, color: run.color, matchedFontBytes },
+            bgColor ? { bgColor } : undefined,
+          );
+          out = overlayResult.bytes;
+          // Typeface is PRESERVED when a bundled font matched → not a substitution.
+          substituted = !overlayResult.matched;
+          residual = true; // non-destructive: the original glyphs remain beneath the box
+        }
+      } else {
+        const { editTextRun } = await import('../textedit-pdfium');
+        ({ bytes: out, substituted, residual } = await editTextRun(editBytesRef.current, pageIndex, objectIndex, objectIndices, newText));
+      }
+      // Use openDocumentBuffer (not onDocumentReplaced) so the Viewer stays mounted
+      // and the user can keep editing without re-clicking the tool. The text layer
+      // re-index via onDocumentReplaced is deferred to when they exit text-edit mode.
+      const buffer = out.buffer.slice(out.byteOffset, out.byteOffset + out.byteLength) as ArrayBuffer;
+      await docCap.openDocumentBuffer({ buffer, name: 'edited.pdf', autoActivate: true }).toPromise();
+      // Push pre-commit bytes onto the per-session undo stack (cap at 20 to bound memory).
+      const prev = editBytesRef.current;
+      if (prev) {
+        textEditUndoStackRef.current.push(prev);
+        if (textEditUndoStackRef.current.length > 20) textEditUndoStackRef.current.shift();
+      }
+      textEditRedoStackRef.current = []; // new commit forks the redo branch
+      editBytesRef.current = out; setEditBytes(out); // updated bytes for the next commit
+      editDirtyRef.current = true;
+      // Be honest about what an edit did: a font substitution changes the typeface,
+      // and a residual edit left the original glyphs in the file (not truly removed).
+      // Residual is the more serious disclosure, so it takes precedence.
+      setEditNote(
+        autoOverlayForUnicode
+          ? 'Non-Latin / Unicode text was placed as an overlay in a covering font. The original text remains beneath — use Redaction or the Secure toggle to remove it.'
+          : overlayBakeRef.current
+            ? 'Secure edit applied — the original text was removed and this page is now a flattened image (its text is no longer selectable).'
+            : residual
+              ? 'The original text may still be present in the file. Text edit does not securely remove content — use Redaction, or the Secure toggle.'
+              : substituted
+                ? 'Font changed to a standard substitute (the original font is embedded as a subset). Edits don’t reflow the paragraph.'
+                : null,
+      );
+      onEdited?.();
+    } catch (e) {
+      setEditError(e instanceof Error ? e.message : 'Edit failed — the document is unchanged.');
+    } finally {
+      commitInFlightRef.current = false;
+      setEditBusy(false);
+      // Flush a commit that queued while this one ran (chain directly — don't rely
+      // on the not-yet-rendered editBusy state clearing).
+      const queued = pendingParentCommitRef.current;
+      if (queued) {
+        pendingParentCommitRef.current = null;
+        void commitTextEdit(...queued);
+      }
+    }
+  };
+
+  // Redact the current text selection: convert each selected line's rect (page
+  // points) into a fractional redaction mark, then enter redact mode so the user
+  // can review + Apply. Per-line `segmentRects` give tight boxes over wrapped
+  // text rather than one loose bounding box.
+  const redactSelection = () => {
+    if (!selectionCap || !docCap) return;
+    const doc = docCap.getDocument(documentId);
+    const sel = selectionCap.getFormattedSelection(documentId) ?? [];
+    const marks: RedactRect[] = [];
+    for (const s of sel) {
+      const size = doc?.pages?.[s.pageIndex]?.size;
+      if (!size) continue;
+      const rects = s.segmentRects?.length ? s.segmentRects : [s.rect];
+      for (const r of rects) {
+        marks.push({
+          id: nextRedactId(),
+          pageIndex: s.pageIndex,
+          x: r.origin.x / size.width,
+          // PDF origin is bottom-left; CSS is top-left. Flip so the mark lands
+          // over the selected text in the page overlay (top-left fraction).
+          y: 1 - (r.origin.y + r.size.height) / size.height,
+          w: r.size.width / size.width,
+          h: r.size.height / size.height,
+        });
+      }
+    }
+    selectionCap.clear(documentId);
+    if (marks.length) {
+      setRedactions((prev) => [...prev, ...marks]);
+      setRedacting(true);
+    }
+  };
+
+  // Redact every match of the current search: convert each hit's rects (page
+  // points) into fractional marks, then enter redact mode for review + Apply.
+  const redactSearchMatches = (
+    results: { pageIndex: number; rects: { origin: { x: number; y: number }; size: { width: number; height: number } }[] }[],
+  ) => {
+    if (!docCap) return;
+    const doc = docCap.getDocument(documentId);
+    const marks: RedactRect[] = [];
+    for (const res of results) {
+      const size = doc?.pages?.[res.pageIndex]?.size;
+      if (!size) continue;
+      for (const r of res.rects) {
+        marks.push({
+          id: nextRedactId(),
+          pageIndex: res.pageIndex,
+          x: r.origin.x / size.width,
+          // PDF origin is bottom-left; CSS is top-left. Flip to overlay correctly.
+          y: 1 - (r.origin.y + r.size.height) / size.height,
+          w: r.size.width / size.width,
+          h: r.size.height / size.height,
+        });
+      }
+    }
+    if (marks.length) {
+      setRedactions((prev) => [...prev, ...marks]);
+      setRedacting(true);
+      setSearchOpen(false);
+    }
+  };
+
+  // Entering a read-only view (View mode OR full-screen presentation): drop any
+  // active tool + selection so no crosshair/handles linger. This is the *gentle*
+  // cleanup — it must NOT discard in-progress edits (pending image, redaction
+  // marks), so a quick full-screen peek doesn't wipe your work.
+  useEffect(() => {
+    if (!editing) {
+      annoApi?.setActiveTool(null);
+      annoApi?.deselectAnnotation();
+    }
+  }, [editing, annoApi]);
+
+  // Truly leaving edit (mode → View): tear down every editing surface so none
+  // persists in read-only mode — pending placements, redaction marks, the
+  // organize / signature modals, and any armed signature placement.
+  // C-4: use refs (not state) to read editDirty/editBytes so this effect never
+  // stales — adding them as deps would cause it to re-fire on every commit.
+  useEffect(() => {
+    if (mode === 'view') {
+      // Preserve any text edits made before the mode switch.
+      if (editDirtyRef.current && editBytesRef.current && onDocumentReplacedRef.current) {
+        onDocumentReplacedRef.current(editBytesRef.current);
+      }
+      setPendingImage(null);
+      setRedacting(false);
+      setRedactions([]);
+      setRedactError(null);
+      setConfirmRedact(false);
+      setOrganizing(false);
+      setSigning(false);
+      setTextEditing(false);
+      editBytesRef.current = null; setEditBytes(null);
+      editDirtyRef.current = false;
+      setTextRunsReady(false);
+      textEditUndoStackRef.current = [];
+      textEditRedoStackRef.current = [];
+      sigCap?.forDocument(documentId).deactivatePlacement();
+    }
+  }, [mode, sigCap, documentId]);
+
+  // While redacting, keep the page in its native orientation so marks stay
+  // aligned with the rendered bitmap (snap back if the view gets rotated).
+  useEffect(() => {
+    if (redacting && viewRotation !== Rotation.Degree0) {
+      rotateApi?.setRotation(Rotation.Degree0);
+    }
+  }, [redacting, viewRotation, rotateApi]);
+
+  // Escape cancels a pending image placement (and the redaction confirm).
+  useEffect(() => {
+    if (!pendingImage) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setPendingImage(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [pendingImage]);
+
+  // Escape dismisses the redaction confirm dialog (unless mid-apply).
+  useEffect(() => {
+    if (!confirmRedact) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !redactBusy) setConfirmRedact(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [confirmRedact, redactBusy]);
+
+  // View mode (and presentation) is read-only: lock annotations so they can't be
+  // moved/resized/deleted. They stay selectable, so clicking a note still opens
+  // its comment. Edit/Suggest unlock full interaction.
+  useEffect(() => {
+    annoApi?.setLocked({ type: mode === 'view' || presenting ? LockModeType.All : LockModeType.None });
+  }, [annoApi, mode, presenting]);
+
+  // (EmbedPDF deselects natively on empty-canvas click now that text selection
+  // is View-mode-only, so no custom background handler is needed.)
+
+  // After placing a one-shot annotation, revert to Select so it's immediately
+  // adjustable (EmbedPDF auto-selects it). Ink/markup tools stay active.
+  useEffect(() => {
+    if (!annoApi) return;
+    return annoApi.onAnnotationEvent((ev) => {
+      if (ev.type === 'create' && REVERT_AFTER_CREATE.has(annoApi.getActiveTool()?.id ?? '')) {
+        annoApi.setActiveTool(null);
+      }
+    });
+  }, [annoApi]);
+
+  // Mark the document dirty (for host unsaved-changes warnings) on any
+  // annotation create/update/delete.
+  useEffect(() => {
+    if (!annoApi || !onEdited) return;
+    return annoApi.onAnnotationEvent((ev) => {
+      if (ev.type === 'create' || ev.type === 'update' || ev.type === 'delete') onEdited();
+    });
+  }, [annoApi, onEdited]);
+
+  // Keyboard: annotation editing shortcuts (ignored while typing in a field).
+  // Suppressed while a non-annotation editing surface owns the page (redaction,
+  // image placement, text edit) — otherwise ⌘A / Delete / tool letters would
+  // mutate annotations hidden under those overlays. Deps include the flags so the
+  // listener detaches the moment one of those surfaces activates.
+  useEffect(() => {
+    if (!editing || redacting || pendingImage || textEditing) return;
+    // Clone an annotation shifted by (dx,dy) with a fresh id, so pasted/dup'd
+    // copies are visible (not stacked) and each is its own createAnnotation
+    // command → individually undoable (importAnnotations folds into the prior
+    // history entry, which made undo remove the original too). transformAnnotation
+    // builds a type-correct patch (rect + vertices/inkList) just like nudging.
+    const cloneAnnotation = (obj: Parameters<NonNullable<typeof annoCap>['transformAnnotation']>[0], dx: number, dy: number) => {
+      const r = obj.rect;
+      if (!r) return { ...obj, id: genId() } as typeof obj; // no geometry to offset
+      const rect = { origin: { x: r.origin.x + dx, y: r.origin.y + dy }, size: r.size };
+      const patch = annoCap?.transformAnnotation(obj, { type: 'move', changes: { rect } }) ?? {};
+      // Spreading the discriminated union widens its `type` discriminant; the
+      // merged object is the same annotation kind as obj, so assert that back.
+      return { ...obj, ...patch, id: genId() } as typeof obj;
+    };
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement;
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
+      // Copy / paste selection (⌘/Ctrl+C / ⌘/Ctrl+V). Paste cascades by offset.
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'c') {
+        const sel = annoApi?.getSelectedAnnotations() ?? [];
+        if (sel.length) {
+          e.preventDefault();
+          // Image stamps (incl. signatures, subtype STAMP=13) carry their bitmap
+          // in a separate creation ctx that a plain clone can't reproduce, so
+          // copying them would paste a blank box — exclude them.
+          clipboardRef.current = sel.map((a) => a.object).filter((o) => (o as { type?: number }).type !== 13);
+        }
+        return;
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'v') {
+        if (annoApi && clipboardRef.current.length) {
+          e.preventDefault();
+          const clones = clipboardRef.current.map((o) => cloneAnnotation(o, 16, 16));
+          clones.forEach((c) => annoApi.createAnnotation(c.pageIndex, c));
+          clipboardRef.current = clones; // next paste cascades from here
+        }
+        return;
+      }
+      // Select all annotations (⌘/Ctrl+A) — enables bulk move/style/delete.
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'a') {
+        const all = annoApi?.getAnnotations() ?? [];
+        if (annoApi && all.length) {
+          e.preventDefault();
+          annoApi.setSelection(all.map((a) => a.object.id));
+        }
+        return;
+      }
+      // Undo / redo (⌘Z / ⌘⇧Z / Ctrl+Y) are handled by the host app so it can
+      // layer a version-level undo (redaction, organize, text-edit) on top of
+      // the annotation-history undo. Don't intercept them here.
+
+      // Duplicate selection (⌘/Ctrl+D) — offset copy with a fresh id.
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'd') {
+        const sel = (annoApi?.getSelectedAnnotations() ?? []).filter((a) => (a.object as { type?: number }).type !== 13);
+        if (annoApi && sel.length) {
+          e.preventDefault();
+          sel.forEach((a) => {
+            const c = cloneAnnotation(a.object, 12, 12);
+            annoApi.createAnnotation(c.pageIndex, c);
+          });
+        }
+        return;
+      }
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key === 'Escape') {
+        annoApi?.setActiveTool(null);
+        annoApi?.deselectAnnotation();
+      } else if (e.key === 'Delete' || e.key === 'Backspace') {
+        const sel = annoApi?.getSelectedAnnotations() ?? [];
+        if (annoApi && sel.length) {
+          e.preventDefault();
+          annoApi.deleteAnnotations(sel.map((a) => ({ pageIndex: a.object.pageIndex, id: a.object.id })));
+        }
+      } else if (e.key.startsWith('Arrow')) {
+        // Nudge the selection: arrows move by 1pt, Shift+arrow by 10pt.
+        // transformAnnotation builds a type-correct patch (rect + vertices/ink).
+        // Only annotations with a rect can be nudged (skip rect-less ones).
+        const sel = (annoApi?.getSelectedAnnotations() ?? []).filter((a) => a.object.rect);
+        const delta: Record<string, [number, number]> = {
+          ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1],
+        };
+        const d = delta[e.key];
+        if (annoApi && annoCap && sel.length && d) {
+          e.preventDefault();
+          const step = e.shiftKey ? 10 : 1;
+          const [dx, dy] = [d[0] * step, d[1] * step];
+          annoApi.updateAnnotations(
+            sel.map((a) => {
+              const r = a.object.rect;
+              const rect = { origin: { x: r.origin.x + dx, y: r.origin.y + dy }, size: r.size };
+              return {
+                pageIndex: a.object.pageIndex,
+                id: a.object.id,
+                patch: annoCap.transformAnnotation(a.object, { type: 'move', changes: { rect } }),
+              };
+            }),
+          );
+        }
+      } else if (e.key.toLowerCase() === 'v') {
+        annoApi?.setActiveTool(null);
+      } else {
+        const tool = TOOLS.find((t) => t.key === e.key.toLowerCase());
+        if (tool) annoApi?.setActiveTool(tool.id);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [editing, redacting, pendingImage, textEditing, annoApi, annoCap, history]);
+
+  return (
+    <AnnotationRendererProvider>
+      {/* Registers interactive form-field renderers once (consumed by the
+          AnnotationLayer's annotationRenderers). */}
+      <FormRendererRegistration />
+      <div className="cpdf" id={ROOT_ID} data-tool={activeToolId ?? undefined}>
+        {peers.length > 0 && <PresenceStack peers={peers} />}
+        {suggestions.length > 0 && (
+          <SuggestionsPanel suggestions={suggestions} onAccept={acceptSuggestion} onReject={rejectSuggestion} />
+        )}
+        <div className="cpdf__main">
+          {!presenting && <LeftRail documentId={documentId} mode={mode} leftPanel={leftPanel} onToggleLeft={toggleLeft} onOrganize={() => { closeInlineEditors(); setOrganizing(true); }} onSign={() => { closeInlineEditors(); setSigning(true); }} onInsertImage={() => imageInputRef.current?.click()} redacting={redacting} onToggleRedact={toggleRedact} textEditing={textEditing} onToggleTextEdit={toggleTextEdit} onUndo={onUndo} onRedo={onRedo} />}
+          {!presenting && leftPanel === 'thumbs' && <ThumbnailSidebar documentId={documentId} onClose={() => setLeftPanel(null)} />}
+          {!presenting && leftPanel === 'outline' && <OutlineSidebar documentId={documentId} onClose={() => setLeftPanel(null)} />}
+          {!presenting && leftPanel === 'comments' && <CommentsSidebar documentId={documentId} comments={comments} currentPage={currentPage ?? 1} canEdit={mode !== 'view'} anchor={commentAnchor} onAnchorUsed={() => setCommentAnchor(null)} focusThreadId={commentFocus} onFocusHandled={() => setCommentFocus(null)} onClose={() => { setCommentAnchor(null); setLeftPanel(null); }} />}
+          {!presenting && leftPanel === 'signatures' && <SigningSidebar signing={signingFlow} canEdit={mode !== 'view'} onClose={() => setLeftPanel(null)} />}
+          {/* Ctrl/⌘ + wheel and pinch-to-zoom over the document. */}
+          <ZoomGestureWrapper documentId={documentId} className="cpdf__zoomwrap">
+            <Viewport documentId={documentId} className="cpdf__viewport">
+              <Scroller
+                documentId={documentId}
+                renderPage={({ width, height, pageIndex }) => (
+                  <PagePointerProvider documentId={documentId} pageIndex={pageIndex} className="cpdf__page" style={{ width, height, position: 'relative' }}>
+                    {/* EmbedPDF types RenderLayer props as HTMLAttributes (no `alt`),
+                        so name the rendered page image via aria-label for WCAG image-alt. */}
+                    <RenderLayer documentId={documentId} pageIndex={pageIndex} aria-label={`Page ${pageIndex + 1}`} />
+                    <SearchLayer documentId={documentId} pageIndex={pageIndex} />
+                    {/* Text selection is needed in View mode (read/copy) and when a
+                        text-markup tool is active (highlight/underline/… select text
+                        to mark up). It must be OFF for Select/shape/ink tools, or it
+                        captures drags and breaks annotation move / deselect. */}
+                    {textSelectable && <SelectionLayer documentId={documentId} pageIndex={pageIndex} />}
+                    <AnnotationLayer
+                      documentId={documentId}
+                      pageIndex={pageIndex}
+                      style={{ position: 'absolute', inset: 0 }}
+                      annotationRenderers={formRenderers}
+                      selectionMenu={({ context, menuWrapperProps }) => {
+                        // Read-only sticky for viewing a comment on the page (View
+                        // mode). In Edit/Suggest the editable field lives in the
+                        // panel — EmbedPDF's selection-menu container can't reliably
+                        // host a focusable textarea.
+                        if (mode !== 'view') return null;
+                        const obj = context.annotation.object;
+                        if (annoApi?.findToolForAnnotation(obj)?.id !== 'textComment') return null;
+                        return (
+                          <div ref={menuWrapperProps.ref} style={{ ...menuWrapperProps.style, zIndex: 50 }}>
+                            <StickyComment note={obj} />
+                          </div>
+                        );
+                      }}
+                    />
+                    <CommentMarkersLayer
+                      documentId={documentId}
+                      pageIndex={pageIndex}
+                      threads={comments.threads}
+                      onOpen={(tid) => {
+                        setCommentFocus(tid);
+                        setLeftPanel('comments');
+                      }}
+                    />
+                    {suggestions.length > 0 && <SuggestionOverlayLayer documentId={documentId} pageIndex={pageIndex} suggestions={suggestions} />}
+                    {collab && <CursorLayer documentId={documentId} pageIndex={pageIndex} peers={peers} onMove={broadcastCursor} onLeave={clearCursor} />}
+                    {mode !== 'view' && !pendingImage && !redacting && !textEditing && <MarqueeSelect documentId={documentId} pageIndex={pageIndex} />}
+                    {editing && textEditing && editBytes && (
+                      <TextEditLayer documentId={documentId} pageIndex={pageIndex} bytes={editBytes} onCommit={commitTextEdit} onReady={() => setTextRunsReady(true)} editBusy={editBusy} />
+                    )}
+                    {editing && pendingImage && (
+                      <ImagePlacer documentId={documentId} pageIndex={pageIndex} image={pendingImage} onPlaced={() => setPendingImage(null)} />
+                    )}
+                    {editing && redacting && (
+                      <RedactionLayer
+                        pageIndex={pageIndex}
+                        redactions={redactions}
+                        onAdd={(r) => {
+                          const id = nextRedactId();
+                          setRedactions((prev) => [...prev, { ...r, id }]);
+                          return id;
+                        }}
+                        onUpdate={(mark) => setRedactions((prev) => prev.map((r) => (r.id === mark.id ? mark : r)))}
+                        onRemove={(mark) => setRedactions((prev) => prev.filter((r) => r.id !== mark.id))}
+                      />
+                    )}
+                  </PagePointerProvider>
+                )}
+              />
+            </Viewport>
+          </ZoomGestureWrapper>
+          {editing && !signaturePlacement && <PropertiesPanel documentId={documentId} />}
+        </div>
+        {/* The wrapper is in the normal flex flow so the viewport stops above
+            the bar — the absolutely-centred pill floats inside this reserved lane
+            without overlapping page content. */}
+        <div className="cpdf__bottomwrap">
+          <BottomBar documentId={documentId} searchOpen={searchOpen} onToggleSearch={() => setSearchOpen((v) => !v)} redacting={redacting} />
+        </div>
+        {searchOpen && (
+          <SearchPanel
+            documentId={documentId}
+            onClose={() => setSearchOpen(false)}
+            canRedact={editing}
+            onRedactMatches={redactSearchMatches}
+          />
+        )}
+        {showSelTools && (
+          <div className="cpdf__seltools" role="toolbar" aria-label="Selection actions" onMouseDown={(e) => e.preventDefault()}>
+            <button type="button" className="cpdf-iconbtn" title="Highlight" aria-label="Highlight" onClick={() => applyMarkup('highlight')}>
+              <Icon name="marker" size={18} />
+            </button>
+            <button type="button" className="cpdf-iconbtn" title="Underline" aria-label="Underline" onClick={() => applyMarkup('underline')}>
+              <Icon name="underline" size={18} />
+            </button>
+            <button type="button" className="cpdf-iconbtn" title="Strikethrough" aria-label="Strikethrough" onClick={() => applyMarkup('strikeout')}>
+              <Icon name="strikeout" size={18} />
+            </button>
+            <span className="cpdf__sep" aria-hidden="true" />
+            <button type="button" className="cpdf-iconbtn" title="Copy" aria-label="Copy" onClick={copySelection}>
+              <Icon name="copy" size={18} />
+            </button>
+            <button type="button" className="cpdf-iconbtn" title="Comment on selection" aria-label="Comment on selection" onClick={commentSelection}>
+              <Icon name="comments" size={18} />
+            </button>
+            <button type="button" className="cpdf-iconbtn" title="Redact selected text" aria-label="Redact selected text" onClick={redactSelection}>
+              <Icon name="redact" size={18} />
+            </button>
+          </div>
+        )}
+        {organizing && (
+          <OrganizeOverlay documentId={documentId} engine={engine} totalPages={totalPages} onClose={() => setOrganizing(false)} onApplied={onEdited} onDocumentReplaced={onDocumentReplaced} />
+        )}
+        {signing && <SignatureModal documentId={documentId} onClose={() => setSigning(false)} />}
+        <PlacementBanner documentId={documentId} />
+        <input
+          ref={imageInputRef}
+          type="file"
+          accept="image/png,image/jpeg"
+          hidden
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) void onImageFile(f);
+            e.target.value = '';
+          }}
+        />
+        {pendingImage && !presenting && (
+          <div className="cpdf__placebanner" role="status">
+            <Icon name="image" size={18} />
+            <span>Click on a page to place the image</span>
+            <button type="button" className="cpdf__btn" onClick={() => setPendingImage(null)}>
+              Cancel
+            </button>
+          </div>
+        )}
+        {textEditing && !presenting && (
+          <div className="cpdf__placebanner" role="status">
+            <Icon name="text-tool" size={18} />
+            <span>
+              {editBusy
+                ? 'Applying edit…'
+                : editError
+                  ? editError
+                  : editNote
+                    ? editNote
+                    : textRunsReady
+                      ? 'Click text to fix typos & short values · Tab / Esc · ⌘Z undo'
+                      : 'Analyzing text runs…'}
+            </span>
+            {(editError || editNote) && (
+              <button type="button" className="cpdf__iconbtn" aria-label="Dismiss" onClick={() => { setEditError(null); setEditNote(null); }}>
+                <Icon name="close" size={16} />
+              </button>
+            )}
+            <button
+              type="button"
+              className="cpdf__btn"
+              aria-pressed={overlayMode}
+              disabled={editBusy}
+              title={
+                overlayMode
+                  ? 'Overlay mode ON: covers the old text and retypes on top — no reflow/spacing damage, but the original stays beneath (use Redaction to remove).'
+                  : 'Direct mode: rewrites the text object (stays searchable) but substitutes the font and can disturb line spacing. Click for Overlay mode.'
+              }
+              onClick={() => setOverlayMode((v) => !v)}
+            >
+              {overlayMode ? 'Overlay ✓' : 'Overlay'}
+            </button>
+            {overlayMode && (
+              <button
+                type="button"
+                className="cpdf__btn"
+                aria-pressed={overlayBake}
+                disabled={editBusy}
+                title={
+                  overlayBake
+                    ? 'Secure ON: flattens the edited page to an image so the original text is truly removed (no longer selectable on that page).'
+                    : 'Secure OFF: the original text stays beneath the cover box (still extractable). Click to flatten & remove it.'
+                }
+                onClick={() => setOverlayBake((v) => !v)}
+              >
+                {overlayBake ? 'Secure ✓' : 'Secure'}
+              </button>
+            )}
+            <button type="button" className="cpdf__btn" disabled={editBusy} onClick={() => toggleTextEdit()}>
+              Done
+            </button>
+          </div>
+        )}
+        {redacting && !presenting && (
+          <div className="cpdf__placebanner cpdf__placebanner--redact" role="status">
+            <Icon name="redact" size={18} />
+            <span>
+              {redactError
+                ? redactError
+                : redactions.length
+                  ? `${redactions.length} region${redactions.length === 1 ? '' : 's'} marked — drag to mark more`
+                  : 'Drag on a page to mark regions to permanently remove'}
+            </span>
+            {redactions.length > 0 && (
+              <button type="button" className="cpdf__btn" disabled={redactBusy} onClick={() => { setRedactions([]); setRedactError(null); }}>
+                Clear
+              </button>
+            )}
+            <button
+              type="button"
+              className="cpdf__btn cpdf__btn--danger"
+              disabled={redactBusy || editBusy || !redactions.length}
+              onClick={() => setConfirmRedact(true)}
+            >
+              {redactBusy ? 'Applying…' : 'Apply redactions'}
+            </button>
+          </div>
+        )}
+        {confirmRedact && (
+          <div className="cpdf__scrim" role="presentation" onClick={() => !redactBusy && setConfirmRedact(false)}>
+            <div
+              className="cpdf__confirm"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Apply redactions"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="cpdf__confirm-head">
+                <span className="cpdf__confirm-icon"><Icon name="redact" size={22} /></span>
+                <h2 className="cpdf__confirm-title">Apply redactions?</h2>
+              </div>
+              <div className="cpdf__redact-modes" role="radiogroup" aria-label="Redaction method">
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={redactMode === 'text'}
+                  data-testid="redact-mode-text"
+                  className={`cpdf__btn${redactMode === 'text' ? ' cpdf__btn--active' : ''}`}
+                  onClick={() => setRedactMode('text')}
+                >
+                  Remove text
+                </button>
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={redactMode === 'flatten'}
+                  data-testid="redact-mode-flatten"
+                  className={`cpdf__btn${redactMode === 'flatten' ? ' cpdf__btn--active' : ''}`}
+                  onClick={() => setRedactMode('flatten')}
+                >
+                  Flatten (images)
+                </button>
+              </div>
+              <p className="cpdf__confirm-body">
+                {redactMode === 'text' ? (
+                  <>
+                    Removes the text touching {redactions.length} marked region{redactions.length === 1 ? '' : 's'} from
+                    the file and blacks it out — the rest of each page stays selectable and editable. (It removes whole
+                    text spans that the region touches, so a bit around the mark may go too.) Any page whose text can't be
+                    cleanly cleared is <strong>automatically flattened</strong> to an image so nothing is left behind.{' '}
+                    <strong>Can't be undone.</strong>
+                  </>
+                ) : (
+                  <>
+                    Rebuilds the {new Set(redactions.map((r) => r.pageIndex)).size} affected page
+                    {new Set(redactions.map((r) => r.pageIndex)).size === 1 ? '' : 's'} as flattened images — removes{' '}
+                    <strong>all</strong> content in the regions (text, images, vectors), so their text is no longer
+                    selectable. Use this for images or other non-text content. <strong>Can't be undone.</strong>
+                  </>
+                )}
+              </p>
+              <div className="cpdf__confirm-acts">
+                <button type="button" className="cpdf__btn" onClick={() => setConfirmRedact(false)}>
+                  Cancel
+                </button>
+                <button type="button" className="cpdf__btn cpdf__btn--danger" onClick={applyRedactions}>
+                  {redactMode === 'text' ? 'Remove text & redact' : 'Flatten & redact'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </AnnotationRendererProvider>
+  );
+}

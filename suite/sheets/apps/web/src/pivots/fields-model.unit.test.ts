@@ -1,0 +1,239 @@
+/**
+ * Copyright 2026 Casual Office
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+import { strict as assert } from 'node:assert';
+import { test } from 'node:test';
+
+import {
+  addFieldToZone,
+  applyDrop,
+  axisOf,
+  filterAllowedCount,
+  hasValues,
+  moveWithinZone,
+  placedColumns,
+  removeFieldFromZone,
+  setFilterValues,
+  toggleFilterValue,
+  updateRowGrouping,
+  updateValueField,
+} from './fields-model.js';
+import type { PivotModel } from './types.js';
+
+function baseModel(): PivotModel {
+  return {
+    id: 'pt-1',
+    sourceSheetId: 's1',
+    source: { startRow: 0, endRow: 5, startColumn: 0, endColumn: 2 },
+    targetSheetId: 's1',
+    target: { row: 0, column: 4 },
+    rows: [{ column: 0 }],
+    cols: [],
+    values: [{ column: 1, agg: 'sum', showAs: 'normal' }],
+    filters: [],
+  };
+}
+
+test('addFieldToZone places a column on Columns and strips it from Rows', () => {
+  const m = addFieldToZone(baseModel(), 0, 'cols');
+  assert.deepEqual(
+    m.rows.map((r) => r.column),
+    [],
+    'column moved off Rows',
+  );
+  assert.deepEqual(
+    m.cols.map((c) => c.column),
+    [0],
+  );
+});
+
+test('axes are mutually exclusive but Values is independent', () => {
+  // Region (col 0) is on Rows; also aggregate it in Values (Count of Region).
+  let m = addFieldToZone(baseModel(), 0, 'values', { defaultAgg: 'count' });
+  assert.equal(m.rows.length, 1, 'still on Rows');
+  assert.equal(m.values.length, 2, 'added to Values too');
+  // Now move col 0 to Columns — leaves Rows, keeps the Values entry.
+  m = addFieldToZone(m, 0, 'cols');
+  assert.equal(m.rows.length, 0);
+  assert.equal(m.cols.length, 1);
+  assert.equal(
+    m.values.filter((v) => v.column === 0).length,
+    1,
+    'Values entry survives the axis move',
+  );
+});
+
+test('addFieldToZone is immutable — original model untouched', () => {
+  const orig = baseModel();
+  const before = JSON.stringify(orig);
+  addFieldToZone(orig, 2, 'rows');
+  assert.equal(JSON.stringify(orig), before, 'input not mutated');
+});
+
+test('Values may hold the same column twice; remove is by index', () => {
+  let m = addFieldToZone(baseModel(), 1, 'values', { defaultAgg: 'average' });
+  assert.equal(m.values.length, 2);
+  m = removeFieldFromZone(m, 'values', 0);
+  assert.equal(m.values.length, 1);
+  assert.equal(m.values[0].agg, 'average', 'removed the right (first) entry');
+});
+
+test('filters get an allowedValues list when assigned', () => {
+  const m = addFieldToZone(baseModel(), 2, 'filters', { allowedValues: ['a', 'b'] });
+  assert.equal(m.filters?.length, 1);
+  assert.deepEqual(m.filters?.[0], { column: 2, allowedValues: ['a', 'b'] });
+});
+
+test('moveWithinZone reorders and is a no-op for bad indices', () => {
+  let m = baseModel();
+  m = addFieldToZone(m, 2, 'rows'); // rows = [0, 2]
+  m = moveWithinZone(m, 'rows', 1, 0);
+  assert.deepEqual(
+    m.rows.map((r) => r.column),
+    [2, 0],
+  );
+  const same = moveWithinZone(m, 'rows', 5, 0);
+  assert.equal(same, m, 'out-of-range move returns the same object');
+});
+
+test('updateValueField patches agg + showAs', () => {
+  const m = updateValueField(baseModel(), 0, { agg: 'max', showAs: 'pctOfGrandTotal' });
+  assert.equal(m.values[0].agg, 'max');
+  assert.equal(m.values[0].showAs, 'pctOfGrandTotal');
+});
+
+test('updateRowGrouping sets and clears grouping', () => {
+  let m = updateRowGrouping(baseModel(), 0, 'month');
+  assert.equal(m.rows[0].grouping, 'month');
+  m = updateRowGrouping(m, 0, 'none');
+  assert.equal(m.rows[0].grouping, undefined, "'none' clears the field");
+});
+
+test('placedColumns + axisOf reflect placement', () => {
+  let m = baseModel(); // rows[0], values[1]
+  m = addFieldToZone(m, 2, 'filters', { allowedValues: ['x'] });
+  assert.deepEqual(
+    [...placedColumns(m)].sort((a, b) => a - b),
+    [0, 1, 2],
+  );
+  assert.equal(axisOf(m, 0), 'rows');
+  assert.equal(axisOf(m, 2), 'filters');
+  assert.equal(axisOf(m, 1), null, 'a Values-only column is on no axis');
+});
+
+test('hasValues guards the last value field', () => {
+  const empty = removeFieldFromZone(baseModel(), 'values', 0);
+  assert.equal(hasValues(empty), false);
+  assert.equal(hasValues(baseModel()), true);
+});
+
+const ALL = ['East', 'North', 'South', 'West'];
+
+function withFilter(): PivotModel {
+  // Filter on column 2 seeded with all values allowed (slice-1 default).
+  return addFieldToZone(baseModel(), 2, 'filters', { allowedValues: ALL });
+}
+
+test('toggleFilterValue unchecks a value and keeps canonical order', () => {
+  const m = toggleFilterValue(withFilter(), 0, 'North', false, ALL);
+  assert.deepEqual(m.filters?.[0].allowedValues, ['East', 'South', 'West']);
+});
+
+test('toggleFilterValue seeds from all values when the stored list is empty', () => {
+  // An empty allowedValues means "all pass"; the first uncheck must seed
+  // from ALL, not drop everything.
+  let m = setFilterValues(withFilter(), 0, []);
+  m = toggleFilterValue(m, 0, 'West', false, ALL);
+  assert.deepEqual(m.filters?.[0].allowedValues, ['East', 'North', 'South']);
+});
+
+test('toggleFilterValue re-checks a value back in', () => {
+  let m = toggleFilterValue(withFilter(), 0, 'North', false, ALL);
+  m = toggleFilterValue(m, 0, 'North', true, ALL);
+  assert.deepEqual(m.filters?.[0].allowedValues, ALL);
+});
+
+test('toggleFilterValue is immutable + a no-op for a bad index', () => {
+  const orig = withFilter();
+  const before = JSON.stringify(orig);
+  const same = toggleFilterValue(orig, 9, 'North', false, ALL);
+  assert.equal(same, orig);
+  assert.equal(JSON.stringify(orig), before);
+});
+
+test('setFilterValues replaces the allowed set (Select all / Clear)', () => {
+  const cleared = setFilterValues(withFilter(), 0, []);
+  assert.deepEqual(cleared.filters?.[0].allowedValues, []);
+  const all = setFilterValues(cleared, 0, ALL);
+  assert.deepEqual(all.filters?.[0].allowedValues, ALL);
+});
+
+test('filterAllowedCount treats an empty list as "all"', () => {
+  const m = setFilterValues(withFilter(), 0, []);
+  assert.equal(filterAllowedCount(m, 0, ALL.length), 4, 'empty = all');
+  const narrowed = toggleFilterValue(m, 0, 'North', false, ALL);
+  assert.equal(filterAllowedCount(narrowed, 0, ALL.length), 3);
+});
+
+// optsFor stub: numeric-ish defaults for the drop reducer.
+const optsFor = (col: number) => ({
+  defaultAgg: 'sum' as const,
+  allowedValues: col === 2 ? ['x', 'y'] : [],
+});
+
+test('applyDrop from the list assigns to the target zone', () => {
+  const m = applyDrop(baseModel(), { from: 'list', column: 2 }, 'cols', optsFor);
+  assert.deepEqual(
+    m.cols.map((c) => c.column),
+    [2],
+  );
+});
+
+test('applyDrop moving a chip across zones removes from source, adds to target', () => {
+  // baseModel rows=[0]; drag the Rows chip (index 0) to Columns.
+  const m = applyDrop(baseModel(), { from: 'zone', zone: 'rows', index: 0 }, 'cols', optsFor);
+  assert.equal(m.rows.length, 0, 'left Rows');
+  assert.deepEqual(
+    m.cols.map((c) => c.column),
+    [0],
+    'now in Columns',
+  );
+});
+
+test('applyDrop onto the same zone is a no-op (reorder is the buttons)', () => {
+  const m = baseModel();
+  assert.equal(applyDrop(m, { from: 'zone', zone: 'rows', index: 0 }, 'rows', optsFor), m);
+});
+
+test('applyDrop refuses to move the last Values field out', () => {
+  const m = baseModel(); // values has exactly one entry
+  assert.equal(applyDrop(m, { from: 'zone', zone: 'values', index: 0 }, 'rows', optsFor), m);
+});
+
+test('applyDrop moving a non-last Values field to Rows works', () => {
+  let m = addFieldToZone(baseModel(), 2, 'values', { defaultAgg: 'count' }); // 2 values now
+  m = applyDrop(m, { from: 'zone', zone: 'values', index: 0 }, 'rows', optsFor);
+  assert.equal(m.values.length, 1, 'one value removed');
+  assert.ok(
+    m.rows.some((r) => r.column === 1),
+    'value column 1 landed on Rows',
+  );
+});
+
+test('applyDrop is a no-op for a bad chip index', () => {
+  const m = baseModel();
+  assert.equal(applyDrop(m, { from: 'zone', zone: 'cols', index: 5 }, 'rows', optsFor), m);
+});

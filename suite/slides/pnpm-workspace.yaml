@@ -1,0 +1,12 @@
+packages:
+  - "apps/*"
+  # Engine consumed from source via the univer-revamp submodule (not npm).
+  # Mirror the engine's internal globs so its workspace:* inter-deps resolve
+  # within this unified workspace.
+  - "univer-revamp/common/*"
+  - "univer-revamp/packages/*"
+  - "univer-revamp/presets"
+  - "univer-revamp/presets/packages/*"
+  - "univer-revamp/mockdata"
+  # Design system / UI kit (single package).
+  - "design-book"

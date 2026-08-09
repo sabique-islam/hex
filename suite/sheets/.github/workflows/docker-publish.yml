@@ -1,0 +1,171 @@
+name: Publish Docker image
+
+# Triggers on every push of a semver-style tag (v0.0.4, v1.2.3, …).
+# Manual `workflow_dispatch` is also wired so you can re-push a tag's
+# image without re-tagging.
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+-*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to build (e.g. v0.0.4). Required for manual runs.'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve tag
+        id: tag
+        # Strip the leading `v` from the git ref tag (or the dispatched
+        # input) so the Docker tag matches the package.json version.
+        run: |
+          set -euo pipefail
+          raw="${{ github.event.inputs.tag || github.ref_name }}"
+          echo "raw=${raw}"
+          echo "raw=${raw}" >> "$GITHUB_OUTPUT"
+          echo "version=${raw#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout (at tag)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.tag.outputs.raw }}
+          # Univer fork lives at vendor/univer-revamp/ as a submodule;
+          # without this the Dockerfile's `COPY vendor/univer-revamp`
+          # picks up an empty dir and @univerjs/core fails to resolve.
+          submodules: recursive
+
+      - name: Resolve build metadata
+        id: meta
+        # RFC 3339 UTC build timestamp + the full commit SHA at the tag.
+        # These ride through as build args so the OCI labels baked into
+        # the image match the artifact's provenance — operators can
+        # `docker inspect` and see exactly which commit was built.
+        run: |
+          set -euo pipefail
+          echo "build_date=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_OUTPUT"
+          echo "git_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Set up pnpm
+        # Needed by the setup-fork step below — the fork install +
+        # build happens on the host before docker copies it in.
+        uses: pnpm/action-setup@v4
+        with:
+          version: '10.33.4'
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          # Node 22 matches the Dockerfile base (node:22-alpine) and is
+          # required by the fork's engine-render prepare script, which
+          # uses --experimental-strip-types (Node 22+).
+          node-version: '22'
+          cache: 'pnpm'
+
+      - name: Build Univer fork (lib/ outputs)
+        # The Dockerfile copies vendor/univer-revamp/ in and runs
+        # pnpm install inside the image — but the fork's package.json
+        # files still point to ./src/index.ts (dev shape). tsc inside
+        # the docker build then tries to typecheck the fork source
+        # and fails because the fork's own node_modules + lib/ aren't
+        # present. setup-fork.sh runs the fork's install + build on
+        # the host, then swaps each fork package.json from src/ to
+        # lib/ shape so the docker layer can consume them as compiled
+        # JS + .d.ts. node_modules are stripped by .dockerignore.
+        run: ./scripts/setup-fork.sh
+        shell: bash
+
+      - name: Set up QEMU
+        # Needed so buildx can produce arm64 layers on the amd64 runner.
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Compute Docker tags
+        id: docker_meta
+        # docker/metadata-action expands a single git tag into the full
+        # rolling-tag set:
+        #   v0.1.0  →  0.1.0  +  0.1  +  0  +  latest
+        # Operators who pin `:0.1` get patch updates; `:0` gets minor +
+        # patch; `:latest` is the bleeding edge.
+        uses: docker/metadata-action@v5
+        with:
+          images: casualoffice/sheets
+          tags: |
+            type=semver,pattern={{version}},value=${{ steps.tag.outputs.raw }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ steps.tag.outputs.raw }}
+            type=semver,pattern={{major}},value=${{ steps.tag.outputs.raw }}
+            type=raw,value=latest
+          # Labels here go on the manifest list (the multi-arch index),
+          # distinct from per-platform labels baked into the Dockerfile
+          # via OCI build args. Keep these in sync with the LABEL block
+          # in the Dockerfile.
+          labels: |
+            org.opencontainers.image.title=Casual Sheets
+            org.opencontainers.image.description=Excel-flavored web spreadsheet with real-time co-editing.
+            org.opencontainers.image.url=https://sheet.casualoffice.org/
+            org.opencontainers.image.source=https://github.com/CasualOffice/sheets
+            org.opencontainers.image.documentation=https://casualoffice.org/docs/sheets/
+            org.opencontainers.image.vendor=Sachin Sarwa
+            org.opencontainers.image.licenses=Apache-2.0
+
+      - name: Build and push
+        # Multi-arch so the image runs on both Linux servers (amd64) and
+        # Apple Silicon laptops (arm64) without an emulation hit.
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          # Tag push → amd64 only (fast; arm64 under QEMU adds ~60 min and
+          # was blocking releases). Manual `workflow_dispatch` (with a tag
+          # input) → full multi-arch, so arm64 is available on-demand
+          # without gating the release: gh workflow run docker-publish.yml -f tag=vX.Y.Z
+          platforms: ${{ github.event_name == 'workflow_dispatch' && 'linux/amd64,linux/arm64' || 'linux/amd64' }}
+          push: true
+          tags: ${{ steps.docker_meta.outputs.tags }}
+          labels: ${{ steps.docker_meta.outputs.labels }}
+          build-args: |
+            CASUAL_VERSION=${{ steps.tag.outputs.raw }}
+            CASUAL_GIT_SHA=${{ steps.meta.outputs.git_sha }}
+            CASUAL_BUILD_DATE=${{ steps.meta.outputs.build_date }}
+          # Provenance + SBOM ride along inside the OCI manifest so
+          # downstream scanners (Trivy, Snyk, GitHub's dep graph) can
+          # verify what's in the image without unpacking it.
+          provenance: true
+          sbom: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Sync Docker Hub overview
+        # Pushes docs/DOCKERHUB.md as the image's "Repository overview"
+        # (the README rendered on the Hub page). Idempotent — re-runs
+        # on every publish so the description stays in lockstep with
+        # whatever the latest release ships.
+        #
+        # Best-effort: the image is already pushed by the time this runs. The
+        # Docker Hub *description* API needs account-password-level auth, not the
+        # push access token, so with a PAT it returns 403 Forbidden — which must
+        # NOT fail the publish. Keep it non-blocking; fix the README sync
+        # separately (a token with description scope, or run it manually).
+        continue-on-error: true
+        uses: peter-evans/dockerhub-description@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: casualoffice/sheets
+          short-description: 'Excel-flavored web spreadsheet with real-time co-editing. Single image (web + Hocuspocus + Fastify). Apache-2.0.'
+          readme-filepath: ./docs/DOCKERHUB.md

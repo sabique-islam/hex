@@ -1,0 +1,1862 @@
+/* Copyright (c) 2026 Casual Office */
+/* SPDX-License-Identifier: Apache-2.0 */
+
+/* Casual PDF viewer chrome — professional editor layout.
+ * Surfaces separate by background color + elevation + radius, never borders.
+ * Colors come from @schnsrw/design-system tokens (host imports tokens.css). */
+
+.cpdf {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  /* A distinctly grey editor canvas so white pages + floating bars separate
+   * clearly (the design-system strip is near-white → too low contrast). */
+  background: #e0e4ea;
+  /* WCAG 2.2 (1.4.3): the design-system secondary/muted greys sit around ~3:1 on
+   * white — below the 4.5:1 needed for text/icons. Override to AA-passing values
+   * inside the editor chrome. --color-text stays the strong near-black. */
+  --color-text-secondary: #4b5563; /* ~8.0:1 on #fff, ~7.2:1 on the grey canvas */
+  --color-text: #1a1d23;
+  --color-border-strong: #9aa3b0; /* thumbnail scrollbar / dividers, ~3:1 (UI) */
+}
+[data-theme='dark'] .cpdf {
+  background: #13151a;
+  --color-text-secondary: #c2cad6; /* ~9:1 on the dark canvas */
+  --color-text: #f2f4f8;
+}
+.cpdf__main {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  gap: var(--space-5, 12px);
+  padding: var(--space-4, 8px);
+}
+
+/* ── Left tool rail ─────────────────────────────────────────────────────── */
+/* Docked (not floating): flush to the left edge, full height, flat with a
+   right divider. Negative margins cancel cpdf__main's padding on three sides. */
+.cpdf__rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  flex: none;
+  padding: var(--space-3, 6px) var(--space-2, 4px);
+  margin: calc(-1 * var(--space-4, 8px)) 0 calc(-1 * var(--space-4, 8px)) calc(-1 * var(--space-4, 8px));
+  background: var(--color-surface-raised, #fff);
+  border-right: 1px solid var(--color-border, #e6e9ee);
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border-strong, #cdd3db) transparent;
+}
+.cpdf__rail::-webkit-scrollbar { width: 4px; }
+.cpdf__rail::-webkit-scrollbar-thumb {
+  background: var(--color-border-strong, #cdd3db);
+  border-radius: 4px;
+}
+.cpdf__rail-sep {
+  width: 22px;
+  height: 1px;
+  margin: 5px 0;
+  background: var(--color-border-strong, #9aa3b0);
+  opacity: 0.55;
+}
+.cpdf__railbtn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-secondary, #555);
+  border-radius: var(--radius-md, 6px);
+  cursor: pointer;
+  transition:
+    background var(--motion-fast, 120ms) var(--ease-out, ease),
+    color var(--motion-fast, 120ms) var(--ease-out, ease);
+}
+.cpdf__railbtn:hover:not(:disabled) {
+  background: var(--color-hover, rgba(0, 0, 0, 0.05));
+  color: var(--color-text, #111);
+}
+.cpdf__railbtn[data-active='true'] {
+  background: var(--color-accent-soft, rgba(70, 90, 255, 0.14));
+  color: var(--color-accent, #4658ff);
+}
+.cpdf__railbtn:disabled {
+  color: var(--color-text-disabled, rgba(0, 0, 0, 0.32));
+  cursor: default;
+}
+.cpdf__railbtn:focus-visible {
+  outline: 2px solid var(--color-focus-ring, #4658ff);
+  outline-offset: 2px;
+}
+/* Custom tooltip: faster appearance than native `title` (200ms vs ~1s),
+   positioned to the right of the rail so it never clips into the canvas. */
+.cpdf__railbtn::after {
+  content: attr(title);
+  position: absolute;
+  left: calc(100% + 10px);
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 200;
+  padding: 4px 9px;
+  background: var(--color-text, #111);
+  color: #fff;
+  font: 500 12px/1.4 var(--font-sans, system-ui, sans-serif);
+  border-radius: 6px;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 60ms ease;
+  transition-delay: 0ms;
+}
+.cpdf__railbtn:not(:disabled):hover::after {
+  opacity: 1;
+  transition-delay: 220ms;
+}
+[data-theme='dark'] .cpdf__railbtn::after {
+  background: #e8eaf0;
+  color: #111;
+}
+
+/* ── Icon button (shared by rail + bottom bar + panels) ─────────────────── */
+.cpdf-iconbtn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1, 4px);
+  min-width: 32px;
+  height: 32px;
+  padding: 0 6px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-secondary, #444);
+  border-radius: var(--radius-md, 6px);
+  cursor: pointer;
+  transition:
+    background var(--motion-fast, 120ms) var(--ease-out, ease),
+    color var(--motion-fast, 120ms) var(--ease-out, ease);
+}
+/* Tooltip for bottom-bar icon buttons only (appears above; 200ms delay).
+   Scoped to .cpdf__bottom so it doesn't get clipped inside panel containers
+   that have overflow:hidden. */
+.cpdf__bottom .cpdf-iconbtn::after {
+  content: attr(title);
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 200;
+  padding: 4px 9px;
+  background: var(--color-text, #111);
+  color: #fff;
+  font: 500 12px/1.4 var(--font-sans, system-ui, sans-serif);
+  border-radius: 6px;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 60ms ease;
+  transition-delay: 0ms;
+}
+.cpdf__bottom .cpdf-iconbtn:not(:disabled):hover::after {
+  opacity: 1;
+  transition-delay: 200ms;
+}
+[data-theme='dark'] .cpdf__bottom .cpdf-iconbtn::after {
+  background: #e8eaf0;
+  color: #111;
+}
+.cpdf-iconbtn:hover:not(:disabled) {
+  background: var(--color-hover, rgba(0, 0, 0, 0.05));
+  color: var(--color-text, #111);
+}
+.cpdf-iconbtn:active:not(:disabled) {
+  background: var(--color-pressed, rgba(0, 0, 0, 0.1));
+}
+.cpdf-iconbtn[data-active='true'] {
+  background: var(--color-accent-soft, rgba(70, 90, 255, 0.14));
+  color: var(--color-accent, #4658ff);
+}
+.cpdf-iconbtn:disabled {
+  color: var(--color-text-disabled, rgba(0, 0, 0, 0.32));
+  cursor: default;
+}
+.cpdf-iconbtn:focus-visible {
+  outline: 2px solid var(--color-focus-ring, #4658ff);
+  outline-offset: 2px;
+}
+
+/* ── Center canvas ──────────────────────────────────────────────────────── */
+.cpdf__zoomwrap {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+}
+.cpdf__viewport {
+  flex: 1;
+  min-width: 0;
+  border-radius: var(--radius-lg, 14px);
+}
+/* Drawing cursor while an annotation tool is active. */
+.cpdf[data-tool] .cpdf__page {
+  cursor: crosshair;
+}
+.cpdf__page {
+  background: #fff;
+  border-radius: 2px;
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.06),
+    0 1px 3px rgba(0, 0, 0, 0.16),
+    0 8px 24px rgba(0, 0, 0, 0.1);
+}
+
+/* ── Right properties panel ─────────────────────────────────────────────── */
+/* Docked (matches the left rail): flush to the right edge, full height, flat
+   with a left divider. Negative margins cancel cpdf__main's padding. */
+.cpdf__props {
+  display: flex;
+  flex-direction: column;
+  flex: none;
+  width: 260px;
+  margin: calc(-1 * var(--space-4, 8px)) calc(-1 * var(--space-4, 8px)) calc(-1 * var(--space-4, 8px)) 0;
+  background: var(--color-surface-raised, #fff);
+  border-left: 1px solid var(--color-border, #e6e9ee);
+  overflow: hidden;
+}
+.cpdf__props-head {
+  padding: var(--space-6, 16px) var(--space-6, 16px) var(--space-4, 8px);
+  color: var(--color-text, #111);
+  font: 600 12px/1 var(--font-sans, system-ui, sans-serif);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.cpdf__props-empty {
+  padding: 0 var(--space-6, 16px) var(--space-6, 16px);
+  color: var(--color-text-secondary, #555);
+  font: 400 12px/1.5 var(--font-sans, system-ui, sans-serif);
+}
+.cpdf__props-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6, 16px);
+  padding: 0 var(--space-6, 16px) var(--space-6, 16px);
+}
+.cpdf__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4, 8px);
+}
+.cpdf__field-label {
+  color: var(--color-text-secondary, #555);
+  font: 600 11px/1 var(--font-sans, system-ui, sans-serif);
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+/* Sticky-note comment popup (anchored to the note on the page). */
+.cpdf__sticky {
+  width: 220px;
+  padding: var(--space-4, 8px);
+  background: #fff8c4;
+  border-radius: var(--radius-md, 6px);
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.08),
+    var(--shadow-3, 0 8px 28px rgba(0, 0, 0, 0.18));
+}
+.cpdf__sticky-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2, 4px);
+  margin-bottom: var(--space-3, 6px);
+  color: #8a6d00;
+  font: 700 11px/1 var(--font-sans, system-ui, sans-serif);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.cpdf__sticky-text {
+  width: 100%;
+  resize: vertical;
+  padding: var(--space-3, 6px);
+  background: rgba(255, 255, 255, 0.8);
+  color: #2a2400;
+  border: 1px solid rgba(138, 109, 0, 0.3);
+  border-radius: var(--radius-sm, 4px);
+  font: 400 13px/1.5 var(--font-sans, system-ui, sans-serif);
+}
+.cpdf__sticky-text:focus-visible {
+  outline: 2px solid #d6a600;
+  outline-offset: 0;
+  border-color: transparent;
+}
+.cpdf__sticky-body {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 200px;
+  overflow-y: auto;
+  color: #2a2400;
+  font: 400 13px/1.5 var(--font-sans, system-ui, sans-serif);
+}
+.cpdf__sticky-body[data-empty='true'] {
+  color: #8a6d00;
+  font-style: italic;
+  opacity: 0.7;
+}
+.cpdf__comment-input {
+  width: 100%;
+  resize: vertical;
+  padding: var(--space-4, 8px);
+  background: var(--color-surface, #fff);
+  color: var(--color-text, #1b1c1f);
+  border: 1px solid var(--color-border, #e6e9ee);
+  border-radius: var(--radius-md, 6px);
+  font: 400 13px/1.5 var(--font-sans, system-ui, sans-serif);
+}
+.cpdf__comment-input::placeholder {
+  color: var(--color-text-secondary, #889);
+}
+.cpdf__comment-input:focus-visible {
+  outline: 2px solid var(--color-focus-ring, #4658ff);
+  outline-offset: 0;
+  border-color: transparent;
+}
+.cpdf__swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.cpdf__swatch {
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  /* Neutral ring so dark swatches stay visible on dark panels and vice-versa. */
+  box-shadow: inset 0 0 0 1px rgba(127, 127, 127, 0.45);
+  transition: transform 100ms ease;
+}
+.cpdf__swatch:hover {
+  transform: scale(1.12);
+}
+.cpdf__swatch[data-active='true'] {
+  box-shadow:
+    0 0 0 2px var(--color-surface-raised, #fff),
+    0 0 0 4px var(--color-accent, #4658ff);
+}
+.cpdf__swatch:focus-visible {
+  outline: 2px solid var(--color-focus-ring, #4658ff);
+  outline-offset: 2px;
+}
+/* Custom-color chip: a rainbow wheel that opens the native picker. When a
+   non-preset color is active, an inline `background` style overrides the wheel
+   to show the chosen color. */
+.cpdf__swatch--custom {
+  position: relative;
+  overflow: hidden;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: conic-gradient(
+    from 0deg,
+    #f5453c,
+    #f5a623,
+    #f5d90a,
+    #2bb673,
+    #2d8cff,
+    #8b5cf6,
+    #f5453c
+  );
+}
+.cpdf__swatch--custom input[type='color'] {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: none;
+  opacity: 0;
+  cursor: pointer;
+}
+.cpdf__swatch--custom:hover {
+  transform: scale(1.12);
+}
+.cpdf__swatch--custom:focus-within {
+  outline: 2px solid var(--color-focus-ring, #4658ff);
+  outline-offset: 2px;
+}
+.cpdf__widths {
+  display: flex;
+  gap: 6px;
+}
+.cpdf__wbtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 32px;
+  border: none;
+  background: var(--color-surface-alt, rgba(0, 0, 0, 0.04));
+  border-radius: var(--radius-md, 6px);
+  cursor: pointer;
+}
+.cpdf__wbtn:hover {
+  background: var(--color-hover, rgba(0, 0, 0, 0.08));
+}
+.cpdf__wbtn[data-active='true'] {
+  background: var(--color-accent-soft, rgba(70, 90, 255, 0.14));
+}
+.cpdf__wbtn[data-active='true'] span {
+  background: var(--color-accent, #4658ff);
+}
+.cpdf__wbtn:focus-visible {
+  outline: 2px solid var(--color-focus-ring, #4658ff);
+  outline-offset: 1px;
+}
+.cpdf__wbtn span {
+  display: block;
+  width: 20px;
+  border-radius: 3px;
+  background: var(--color-text, #111);
+}
+.cpdf__opbtn {
+  flex: 1;
+  height: 32px;
+  border: none;
+  background: var(--color-surface-alt, rgba(0, 0, 0, 0.04));
+  border-radius: var(--radius-md, 6px);
+  color: var(--color-text-secondary, #555);
+  font: 600 12px/1 var(--font-sans, system-ui, sans-serif);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.cpdf__opbtn:hover {
+  background: var(--color-hover, rgba(0, 0, 0, 0.08));
+  color: var(--color-text, #111);
+}
+.cpdf__opbtn[data-active='true'] {
+  background: var(--color-accent-soft, rgba(70, 90, 255, 0.14));
+  color: var(--color-accent, #4658ff);
+}
+.cpdf__opbtn:focus-visible {
+  outline: 2px solid var(--color-focus-ring, #4658ff);
+  outline-offset: 1px;
+}
+/* Custom numeric entry sitting after the presets (stroke width / font size). */
+.cpdf__numinput {
+  width: 52px;
+  flex: 0 0 auto;
+  height: 32px;
+  padding: 0 6px;
+  border: 1px solid var(--color-border, #d8dce4);
+  border-radius: var(--radius-md, 6px);
+  background: var(--color-surface, #fff);
+  color: var(--color-text, #111);
+  font: 600 12px/1 var(--font-sans, system-ui, sans-serif);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+.cpdf__numinput:focus-visible {
+  outline: 2px solid var(--color-focus-ring, #4658ff);
+  outline-offset: 1px;
+}
+.cpdf__delete {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 36px;
+  border: none;
+  border-radius: var(--radius-md, 10px);
+  background: var(--color-danger-soft, rgba(229, 57, 53, 0.12));
+  color: var(--color-danger, #e53935);
+  font: 600 13px/1 var(--font-sans, system-ui, sans-serif);
+  cursor: pointer;
+}
+.cpdf__delete:hover {
+  background: var(--color-danger, #e53935);
+  color: #fff;
+}
+.cpdf__delete:focus-visible {
+  outline: 2px solid var(--color-focus-ring, #4658ff);
+  outline-offset: 2px;
+}
+
+/* ── Floating bottom view bar ───────────────────────────────────────────── */
+.cpdf__bottomwrap {
+  height: 48px;
+  flex: none;
+  background: var(--color-surface-raised, #fff);
+  border-top: 1px solid var(--color-border, #e6e9ee);
+}
+.cpdf__bottom {
+  height: 100%;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1, 4px);
+  width: 100%;
+  max-width: 100%;
+  padding: var(--space-1, 5px) var(--space-2, 8px);
+  background: var(--color-surface-raised, #fff);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.cpdf__bottom::-webkit-scrollbar {
+  display: none;
+}
+.cpdf__group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+}
+@media (max-width: 760px) {
+  .cpdf__bottom {
+    justify-content: flex-start;
+  }
+}
+.cpdf__sep {
+  width: 1px;
+  align-self: stretch;
+  margin: 6px 4px;
+  background: var(--color-divider, rgba(0, 0, 0, 0.1));
+}
+.cpdf__pagebox {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 38px;
+  padding: 0 4px;
+  color: var(--color-text, #111);
+  font: 500 13px/1 var(--font-sans, system-ui, sans-serif);
+  white-space: nowrap;
+}
+.cpdf__pageinput {
+  width: 2.4em;
+  height: 28px;
+  text-align: center;
+  border: none;
+  border-radius: var(--radius-sm, 6px);
+  background: var(--color-surface-alt, rgba(0, 0, 0, 0.05));
+  color: var(--color-text, #111);
+  font: inherit;
+}
+.cpdf__pageinput:focus-visible {
+  outline: 2px solid var(--color-focus-ring, #4658ff);
+  outline-offset: 1px;
+}
+.cpdf__pagetotal {
+  color: var(--color-text-secondary, #555);
+}
+.cpdf__zoommenu {
+  position: relative;
+  display: inline-flex;
+}
+.cpdf__zoomlabel {
+  min-width: 3.4em;
+  height: 30px;
+  padding: 0 6px;
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-sm, 8px);
+  text-align: center;
+  color: var(--color-text-secondary, #444);
+  font: 500 12px/1 var(--font-sans, system-ui, sans-serif);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.cpdf__zoomlabel:hover,
+.cpdf__zoomlabel[aria-expanded='true'] {
+  background: var(--color-hover, rgba(0, 0, 0, 0.06));
+  color: var(--color-text, #111);
+}
+.cpdf__zoomlabel:focus-visible {
+  outline: 2px solid var(--color-focus-ring, #4658ff);
+  outline-offset: 1px;
+}
+.cpdf__zoompop {
+  /* Portaled to <body>; left/bottom are set inline from the anchor rect. */
+  position: fixed;
+  transform: translateX(-50%);
+  z-index: 120;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+  min-width: 92px;
+  background: var(--color-surface-raised, #fff);
+  border-radius: var(--radius-lg, 12px);
+  box-shadow: var(--shadow-3, 0 8px 28px rgba(0, 0, 0, 0.18));
+}
+.cpdf__zoomopt {
+  height: 30px;
+  padding: 0 12px;
+  border: none;
+  background: transparent;
+  border-radius: 7px;
+  color: var(--color-text, #111);
+  font: 500 12px/1 var(--font-sans, system-ui, sans-serif);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  cursor: pointer;
+}
+.cpdf__zoomopt:hover {
+  background: var(--color-hover, rgba(0, 0, 0, 0.06));
+}
+.cpdf__zoomopt[data-active='true'] {
+  background: var(--color-accent-soft, rgba(70, 90, 255, 0.14));
+  color: var(--color-accent, #4658ff);
+}
+.cpdf__zoomopt:focus-visible {
+  outline: 2px solid var(--color-focus-ring, #4658ff);
+  outline-offset: -2px;
+}
+
+/* ── Find bar: floats top-center, clear of the rail and properties panel ──── */
+.cpdf__search {
+  position: absolute;
+  top: var(--space-3, 14px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 21;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px 4px 12px;
+  color: var(--color-text-secondary, #444);
+  background: var(--color-surface-raised, #fff);
+  border-radius: var(--radius-pill, 999px);
+  box-shadow:
+    0 0 0 1px var(--color-border-strong, #cdd3db),
+    0 8px 24px rgba(0, 0, 0, 0.2);
+}
+.cpdf__search input {
+  width: clamp(120px, 20vw, 220px);
+  height: 32px;
+  padding: 0 6px;
+  border: none;
+  background: transparent;
+  color: var(--color-text, #111);
+  font: 400 13px/1 var(--font-sans, system-ui, sans-serif);
+}
+.cpdf__search input:focus {
+  outline: none;
+}
+.cpdf__search-count {
+  min-width: 4em;
+  text-align: center;
+  color: var(--color-text-secondary, #555);
+  font: 500 12px/1 var(--font-sans, system-ui, sans-serif);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Left drawer: thumbnails / outline ──────────────────────────────────── */
+.cpdf__panel {
+  display: flex;
+  flex-direction: column;
+  flex: none;
+  width: 200px;
+  background: var(--color-surface-raised, #fff);
+  border-radius: var(--radius-lg, 14px);
+  box-shadow: var(--shadow-1, 0 1px 4px rgba(0, 0, 0, 0.08));
+  overflow: hidden;
+}
+.cpdf__panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-2, 4px) var(--space-2, 4px) var(--space-2, 4px) var(--space-4, 10px);
+  color: var(--color-text, #111);
+  font: 700 11px/1 var(--font-sans, system-ui, sans-serif);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.cpdf__panel-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden; /* never a horizontal scrollbar in the 200px panel */
+  padding: var(--space-1, 2px) var(--space-2, 4px);
+}
+.cpdf__panel-empty {
+  padding: var(--space-3, 14px);
+  color: var(--color-text-secondary, #555);
+  font: 400 12px/1.5 var(--font-sans, system-ui, sans-serif);
+  text-align: center;
+}
+/* Organize Pages overlay (reorder / delete page grid). */
+.cpdf__organize {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-surface, #f3f5f8);
+}
+.cpdf__organize-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4, 8px);
+  padding: var(--space-4, 8px) var(--space-6, 16px);
+  background: var(--color-surface-raised, #fff);
+  box-shadow: var(--shadow-1, 0 1px 4px rgba(0, 0, 0, 0.08));
+}
+.cpdf__organize-title {
+  color: var(--color-text, #1b1c1f);
+  font: 600 14px/1 var(--font-sans, system-ui, sans-serif);
+}
+.cpdf__organize-hint {
+  color: var(--color-text-secondary, #667);
+  font: 400 12px/1 var(--font-sans, system-ui, sans-serif);
+}
+.cpdf__organize-acts {
+  margin-left: auto;
+  display: flex;
+  gap: var(--space-3, 6px);
+}
+.cpdf__btn {
+  height: 32px;
+  padding: 0 14px;
+  border: 1px solid var(--color-border, #e6e9ee);
+  border-radius: var(--radius-md, 6px);
+  background: var(--color-surface-raised, #fff);
+  color: var(--color-text, #1b1c1f);
+  font: 600 13px/1 var(--font-sans, system-ui, sans-serif);
+  white-space: nowrap;
+  flex: none;
+  cursor: pointer;
+}
+.cpdf__btn:hover:not(:disabled) {
+  background: var(--color-hover, rgba(0, 0, 0, 0.05));
+}
+.cpdf__btn--primary {
+  border-color: transparent;
+  background: var(--color-accent, #4658ff);
+  color: var(--color-text-on-accent, #fff);
+}
+.cpdf__btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.cpdf__organize-grid {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: var(--space-6, 16px);
+  padding: var(--space-6, 16px);
+}
+.cpdf__organize-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3, 6px);
+}
+.cpdf__organize-thumb {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: var(--space-3, 6px);
+  background: var(--color-surface-raised, #fff);
+  border-radius: var(--radius-md, 6px);
+  box-shadow:
+    0 0 0 1px var(--color-border, #e6e9ee),
+    var(--shadow-1, 0 1px 4px rgba(0, 0, 0, 0.1));
+}
+.cpdf__organize-thumb img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+.cpdf__organize-cellbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1, 2px);
+}
+.cpdf__organize-num {
+  min-width: 28px;
+  text-align: center;
+  color: var(--color-text-secondary, #667);
+  font: 600 12px/1 var(--font-sans, system-ui, sans-serif);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Text-selection mini-toolbar (markup-on-select) — floats top-center of the
+   canvas; rendered in our own DOM so its buttons are reliably clickable. */
+.cpdf__seltools {
+  position: absolute;
+  top: var(--space-5, 12px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 25;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1, 2px);
+  padding: var(--space-1, 3px);
+  background: var(--color-surface-raised, #fff);
+  border-radius: var(--radius-pill, 999px);
+  box-shadow:
+    0 0 0 1px var(--color-border-strong, #cdd3db),
+    var(--shadow-3, 0 8px 28px rgba(0, 0, 0, 0.18));
+}
+
+/* Comments / review panel rows. */
+.cpdf__comment-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3, 6px);
+  width: 100%;
+  padding: var(--space-3, 6px) var(--space-4, 8px);
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-md, 6px);
+  color: var(--color-text, #1b1c1f);
+  font: 400 13px/1.4 var(--font-sans, system-ui, sans-serif);
+  text-align: left;
+  cursor: pointer;
+}
+.cpdf__comment-row:hover {
+  background: var(--color-hover, rgba(0, 0, 0, 0.05));
+}
+.cpdf__comment-row:focus-visible {
+  outline: 2px solid var(--color-focus-ring, #4658ff);
+  outline-offset: -2px;
+}
+.cpdf__comment-row-icon {
+  display: inline-flex;
+  flex: none;
+  color: var(--color-text-secondary, #667);
+}
+.cpdf__comment-row-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cpdf__comment-row-page {
+  flex: none;
+  color: var(--color-text-secondary, #889);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Polished empty state (panels): centered icon + title + hint. */
+.cpdf__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3, 6px);
+  min-height: 180px;
+  padding: var(--space-7, 20px) var(--space-6, 16px);
+  text-align: center;
+}
+.cpdf__empty-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  margin-bottom: var(--space-2, 4px);
+  border-radius: var(--radius-lg, 10px);
+  background: var(--color-surface-alt, rgba(0, 0, 0, 0.04));
+  color: var(--color-text-secondary, #889);
+}
+.cpdf__empty-title {
+  color: var(--color-text, #1b1c1f);
+  font: 600 13px/1.3 var(--font-sans, system-ui, sans-serif);
+}
+.cpdf__empty-hint {
+  max-width: 200px;
+  color: var(--color-text-secondary, #667);
+  font: 400 12px/1.5 var(--font-sans, system-ui, sans-serif);
+}
+/* Row geometry (top/height) comes from the plugin meta; here we just center the
+   meta-sized image and the page number inside the reserved row. */
+.cpdf__thumb {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2, 4px);
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-md, 6px);
+  cursor: pointer;
+}
+.cpdf__thumb:hover img {
+  outline: 2px solid var(--color-accent-soft, rgba(70, 90, 255, 0.4));
+}
+.cpdf__thumb[data-current='true'] img {
+  outline: 2px solid var(--color-accent, #4658ff);
+  outline-offset: 0;
+}
+.cpdf__thumb[data-current='true'] .cpdf__thumb-n {
+  color: var(--color-accent, #4658ff);
+  font-weight: 700;
+}
+/* Each page reads as a distinct white card on the panel (separation). Do NOT
+   set width — ThumbImg sizes itself from the plugin meta to keep page aspect. */
+.cpdf__thumb img {
+  display: block;
+  background: #fff;
+  border-radius: var(--radius-sm, 4px);
+  box-shadow:
+    0 0 0 1px var(--color-border, #e6e9ee),
+    var(--shadow-2, 0 2px 6px rgba(0, 0, 0, 0.12));
+}
+.cpdf__thumb-n {
+  text-align: center;
+  color: var(--color-text-secondary, #667);
+  font: 500 12px/1 var(--font-sans, system-ui, sans-serif);
+  font-variant-numeric: tabular-nums;
+}
+.cpdf__outline-item {
+  display: block;
+  width: 100%;
+  padding: 6px 8px;
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-sm, 6px);
+  color: var(--color-text-secondary, #444);
+  font: 400 13px/1.3 var(--font-sans, system-ui, sans-serif);
+  text-align: left;
+  cursor: pointer;
+}
+.cpdf__outline-item:hover {
+  background: var(--color-hover, rgba(0, 0, 0, 0.05));
+  color: var(--color-text, #111);
+}
+
+/* ── Loading / empty ────────────────────────────────────────────────────── */
+.cpdf__status {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-4, 8px);
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-6, 16px);
+  text-align: center;
+  color: var(--color-text-secondary, #555);
+  font: 500 14px/1 var(--font-sans, system-ui, sans-serif);
+}
+.cpdf__status-icon {
+  display: inline-flex;
+  margin-bottom: var(--space-2, 4px);
+  color: var(--color-text-secondary, #889);
+}
+.cpdf__status-icon--error {
+  color: var(--color-danger, #e5484d);
+}
+.cpdf__status-title {
+  color: var(--color-text, #1b1c1f);
+  font: 600 15px/1.3 var(--font-sans, system-ui, sans-serif);
+}
+.cpdf__status-sub {
+  max-width: 320px;
+  color: var(--color-text-secondary, #667);
+  font: 400 13px/1.5 var(--font-sans, system-ui, sans-serif);
+}
+.cpdf__spinner {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 3px solid var(--color-divider, rgba(0, 0, 0, 0.1));
+  border-top-color: var(--color-accent, #4658ff);
+  animation: cpdf-spin 0.8s linear infinite;
+}
+@keyframes cpdf-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cpdf__spinner {
+    animation-duration: 2s;
+  }
+}
+
+/* ── E-signature modal + placement banner ───────────────────────────────── */
+.cpdf__scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-6, 16px);
+  background: rgba(15, 18, 28, 0.45);
+}
+.cpdf__sigmodal {
+  width: min(520px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5, 12px);
+  padding: var(--space-6, 16px);
+  background: var(--color-surface-raised, #fff);
+  border-radius: var(--radius-lg, 12px);
+  box-shadow: var(--shadow-3, 0 18px 48px rgba(0, 0, 0, 0.28));
+}
+.cpdf__sigmodal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.cpdf__sigmodal-title {
+  color: var(--color-text, #1b1c1f);
+  font: 700 16px/1 var(--font-sans, system-ui, sans-serif);
+}
+.cpdf__sigtabs {
+  display: flex;
+  gap: var(--space-2, 4px);
+  padding: var(--space-2, 4px);
+  background: var(--color-surface, #f3f5f8);
+  border-radius: var(--radius-md, 8px);
+}
+.cpdf__sigtab {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2, 4px);
+  height: 34px;
+  border: none;
+  border-radius: var(--radius-sm, 6px);
+  background: transparent;
+  color: var(--color-text-secondary, #555);
+  font: 600 13px/1 var(--font-sans, system-ui, sans-serif);
+  cursor: pointer;
+}
+.cpdf__sigtab[data-active='true'] {
+  background: var(--color-surface-raised, #fff);
+  color: var(--color-text, #111);
+  box-shadow: var(--shadow-1, 0 1px 4px rgba(0, 0, 0, 0.12));
+}
+.cpdf__sigbody {
+  display: flex;
+}
+/* The pad fills the body; a dashed frame reads as a "sign here" area. */
+.cpdf__sigpad {
+  width: 100%;
+  height: 180px;
+  /* Always a light "paper" surface so dark ink stays visible in dark mode (the
+     signature is drawn onto white paper anyway). */
+  background: #fbfcfe;
+  border: 1px dashed var(--color-border, #c9cfda);
+  border-radius: var(--radius-md, 8px);
+  touch-action: none;
+}
+.cpdf__sigpad input,
+.cpdf__sigpad textarea {
+  color: #1b1c1f;
+}
+.cpdf__sigpad canvas,
+.cpdf__sigpad input,
+.cpdf__sigpad textarea {
+  width: 100%;
+  height: 100%;
+}
+.cpdf__sigopts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-6, 16px);
+}
+.cpdf__sigfoot {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3, 6px);
+}
+.cpdf__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2, 4px);
+}
+/* Placement banner: floats bottom-centre above the view bar (not top-centre,
+   which conflicts with the search panel / selection toolbar). */
+.cpdf__placebanner {
+  position: absolute;
+  bottom: 58px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 55;
+  display: flex;
+  align-items: center;
+  gap: var(--space-4, 8px);
+  max-width: min(560px, calc(100% - 24px));
+  padding: var(--space-2, 5px) var(--space-2, 6px) var(--space-2, 5px) var(--space-4, 10px);
+  background: var(--color-accent, #4658ff);
+  color: var(--color-text-on-accent, #fff);
+  border-radius: var(--radius-md, 8px);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-accent, #4658ff) 65%, #000), var(--shadow-2, 0 6px 20px rgba(0, 0, 0, 0.18));
+  font: 600 13px/1 var(--font-sans, system-ui, sans-serif);
+}
+.cpdf__placebanner span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cpdf__placebanner .cpdf__btn {
+  height: 28px;
+  padding: 0 12px;
+}
+
+/* ── Redaction marking ──────────────────────────────────────────────────── */
+/* Full-page capture overlay while the Redact tool is active. */
+.cpdf__redactlayer {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  cursor: crosshair;
+  touch-action: none;
+}
+/* A marked (or in-progress) region: a translucent red box with a solid edge so
+   it reads as "will be removed" without hiding what's underneath while editing. */
+.cpdf__redactrect {
+  position: absolute;
+  background: rgba(229, 72, 77, 0.32);
+  box-shadow: inset 0 0 0 1.5px var(--color-danger, #e5484d);
+  pointer-events: auto;
+}
+.cpdf__redactrect-remove {
+  display: none;
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #b42318;
+  color: #fff;
+  font-size: 11px;
+  line-height: 18px;
+  text-align: center;
+  cursor: pointer;
+  border: none;
+  padding: 0;
+  z-index: 1;
+  pointer-events: auto;
+}
+.cpdf__redactrect:hover .cpdf__redactrect-remove,
+.cpdf__redactrect:focus-within .cpdf__redactrect-remove {
+  display: block;
+}
+/* Keyboard focus: a visible ring on the layer and on a selected mark (WCAG 2.4.7). */
+.cpdf__redactlayer:focus-visible {
+  outline: 2px solid var(--color-accent, #3b82f6);
+  outline-offset: -2px;
+}
+.cpdf__redactrect:focus-visible {
+  outline: 2px solid #fff;
+  box-shadow: inset 0 0 0 1.5px var(--color-danger, #e5484d), 0 0 0 2px var(--color-accent, #3b82f6);
+}
+.cpdf__redactrect--draft {
+  background: rgba(229, 72, 77, 0.2);
+  box-shadow: inset 0 0 0 1.5px var(--color-danger, #e5484d);
+}
+/* Rubber-band marquee (Select tool, drag over empty canvas). A translucent
+   accent box so it reads as a live selection region without obscuring content.
+   pointer-events:none — the box is purely visual; the drag is handled by the
+   interaction-manager pointer handler underneath. */
+.cpdf__marquee {
+  position: absolute;
+  z-index: 35;
+  background: color-mix(in srgb, var(--color-primary, #2d8cff) 14%, transparent);
+  box-shadow: inset 0 0 0 1px var(--color-primary, #2d8cff);
+  border-radius: 2px;
+  pointer-events: none;
+}
+/* Tier-2 text-edit overlay: a click target over each text run, and the inline
+   editor that replaces it while typing. The container is pass-through; only the
+   run targets and the active input capture pointers. */
+.cpdf__textedit {
+  position: absolute;
+  inset: 0;
+  z-index: 36;
+  pointer-events: none;
+}
+.cpdf__textedit-loading {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 11px;
+  color: var(--color-primary, #2d8cff);
+  opacity: 0.7;
+  pointer-events: none;
+  white-space: nowrap;
+}
+/* Run hitbox: invisible at rest — just captures clicks with a text cursor.
+   No visible box so the PDF reads naturally in edit mode. */
+.cpdf__textedit-run {
+  position: absolute;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 2px;
+  background: transparent;
+  cursor: text;
+  pointer-events: auto;
+  transition: background 80ms;
+}
+.cpdf__textedit-run:hover {
+  background: rgba(45, 140, 255, 0.07);
+}
+[data-theme='dark'] .cpdf__textedit-run:hover {
+  background: rgba(45, 140, 255, 0.18);
+}
+/* Active input: white background covers the PDF glyphs so the user sees their
+   own edits cleanly. Font properties (family/size/weight/color) come from inline
+   style, matched to the PDF run by PDFium metadata. */
+.cpdf__textedit-input {
+  position: absolute;
+  margin: 0;
+  padding: 0 2px;
+  border: none;
+  border-radius: 2px;
+  background: #fff;
+  line-height: 1.2;
+  pointer-events: auto;
+  outline: none;
+  box-shadow: 0 0 0 1.5px rgba(45, 140, 255, 0.55), 0 2px 8px rgba(0,0,0,0.12);
+  caret-color: #2d8cff;
+  z-index: 2;
+}
+[data-theme='dark'] .cpdf__textedit-input {
+  background: #23272e;
+  color: #f0f0f0;
+}
+.cpdf__placebanner--redact {
+  background: var(--color-danger, #e5484d);
+}
+.cpdf__btn--danger {
+  border-color: transparent;
+  background: #b42318;
+  color: #fff;
+}
+.cpdf__btn--danger:hover:not(:disabled) {
+  background: #971c12;
+}
+
+/* ── Redaction confirm dialog (destructive, irreversible) ───────────────── */
+.cpdf__confirm {
+  width: min(440px, 100%);
+  padding: var(--space-6, 16px);
+  background: var(--color-surface-raised, #fff);
+  border-radius: var(--radius-lg, 12px);
+  box-shadow: var(--shadow-3, 0 18px 48px rgba(0, 0, 0, 0.28));
+}
+.cpdf__confirm-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4, 8px);
+  margin-bottom: var(--space-4, 8px);
+}
+.cpdf__confirm-icon {
+  display: inline-flex;
+  color: var(--color-danger, #e5484d);
+}
+.cpdf__confirm-title {
+  margin: 0;
+  color: var(--color-text, #1b1c1f);
+  font: 700 16px/1.2 var(--font-sans, system-ui, sans-serif);
+}
+.cpdf__confirm-body {
+  margin: 0 0 var(--space-6, 16px);
+  color: var(--color-text-secondary, #555);
+  font: 400 13px/1.6 var(--font-sans, system-ui, sans-serif);
+}
+.cpdf__confirm-acts {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-3, 6px);
+}
+
+/* Redaction method toggle (Remove secure / Keep text) in the confirm dialog. */
+.cpdf__redact-modes {
+  display: flex;
+  gap: var(--space-2, 4px);
+  margin-bottom: var(--space-4, 8px);
+}
+.cpdf__redact-modes .cpdf__btn {
+  flex: 1;
+  justify-content: center;
+}
+.cpdf__btn--active {
+  background: var(--color-accent, #2563eb);
+  color: #fff;
+  border-color: var(--color-accent, #2563eb);
+}
+
+/* ── Collab presence (remote peers) ─────────────────────────────────────────
+   A floating avatar stack, top-right of the canvas, above the page chrome. */
+.cpdf__presence {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 210;
+  display: flex;
+  flex-direction: row-reverse;
+  align-items: center;
+}
+.cpdf__presence-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 600;
+  color: #fff;
+  border: 2px solid var(--color-surface, #fff);
+  margin-left: -8px;
+  box-shadow: var(--shadow-1, 0 1px 3px rgba(0, 0, 0, 0.2));
+  user-select: none;
+  text-transform: uppercase;
+}
+.cpdf__presence-more {
+  background: var(--color-surface-raised, #64748b) !important;
+  color: var(--color-text, #1e293b);
+}
+
+/* ── Collab suggestions review panel (floating, top-right below presence) ──── */
+.cpdf__suggestions {
+  position: absolute;
+  top: 48px;
+  right: 12px;
+  z-index: 208;
+  width: 260px;
+  max-height: 45vh;
+  overflow: auto;
+  background: var(--color-surface, #fff);
+  border-radius: var(--radius-2, 10px);
+  box-shadow: var(--shadow-2, 0 2px 12px rgba(0, 0, 0, 0.18));
+  font-size: 13px;
+}
+.cpdf__suggestions-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 12px;
+  font-weight: 600;
+  border-bottom: 1px solid var(--color-border, #e2e8f0);
+  position: sticky;
+  top: 0;
+  background: inherit;
+}
+.cpdf__suggestions-list {
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+}
+.cpdf__suggestion {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: var(--radius-1, 6px);
+}
+.cpdf__suggestion:hover {
+  background: var(--color-surface-raised, #f1f5f9);
+}
+.cpdf__suggestion-meta {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.cpdf__suggestion-type {
+  text-transform: capitalize;
+  font-weight: 500;
+}
+.cpdf__suggestion-sub {
+  color: var(--color-text-muted, #64748b);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cpdf__suggestion-actions {
+  display: flex;
+  gap: 2px;
+  flex: none;
+}
+
+/* ── Threaded comments panel ──────────────────────────────────────────────── */
+.cpdf__comment-new {
+  padding: var(--space-3, 8px) var(--space-4, 10px);
+  border-bottom: 1px solid var(--color-border, rgba(0, 0, 0, 0.08));
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2, 6px);
+}
+.cpdf__comment-new-input,
+.cpdf__reply-input {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  padding: var(--space-2, 6px) var(--space-3, 8px);
+  border: 1px solid var(--color-border, rgba(0, 0, 0, 0.12));
+  border-radius: var(--radius-md, 6px);
+  background: var(--color-surface, #fff);
+  color: var(--color-text, #1b1c1f);
+  font: 400 13px/1.4 var(--font-sans, system-ui, sans-serif);
+}
+.cpdf__comment-new-input:focus,
+.cpdf__reply-input:focus {
+  outline: 2px solid var(--color-focus-ring, #4658ff);
+  outline-offset: -1px;
+  border-color: transparent;
+}
+.cpdf__comment-new-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.cpdf__comment-new-hint {
+  color: var(--color-text-secondary, #889);
+  font-size: 11px;
+}
+.cpdf__reply-send {
+  padding: 5px 12px;
+  border: none;
+  border-radius: var(--radius-pill, 999px);
+  background: var(--color-accent, #2563eb);
+  color: var(--color-text-on-accent, #fff);
+  font: 500 12px/1 var(--font-sans, system-ui, sans-serif);
+  cursor: pointer;
+}
+.cpdf__reply-send:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.cpdf__thread {
+  padding: var(--space-3, 8px) var(--space-4, 10px);
+  border-radius: var(--radius-md, 8px);
+  background: var(--color-surface-2, rgba(0, 0, 0, 0.02));
+  margin: var(--space-2, 6px) var(--space-3, 8px);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2, 6px);
+}
+.cpdf__thread--resolved {
+  opacity: 0.62;
+}
+.cpdf__thread-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2, 6px);
+}
+.cpdf__thread-spacer {
+  flex: 1;
+}
+.cpdf__thread-anchor {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-secondary, #667);
+  font: 500 11px/1 var(--font-sans, system-ui, sans-serif);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: var(--radius-sm, 4px);
+}
+.cpdf__thread-anchor:hover {
+  background: var(--color-hover, rgba(0, 0, 0, 0.05));
+  color: var(--color-accent, #2563eb);
+}
+.cpdf__thread-badge {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-success, #16794a);
+  background: var(--color-success-bg, rgba(22, 121, 74, 0.12));
+  padding: 2px 6px;
+  border-radius: var(--radius-pill, 999px);
+}
+.cpdf__msg {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.cpdf__msg-meta {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2, 6px);
+}
+.cpdf__msg-author {
+  font: 600 12px/1.3 var(--font-sans, system-ui, sans-serif);
+  color: var(--color-text, #1b1c1f);
+}
+.cpdf__msg-time {
+  font-size: 11px;
+  color: var(--color-text-secondary, #889);
+}
+.cpdf__msg-body {
+  font: 400 13px/1.45 var(--font-sans, system-ui, sans-serif);
+  color: var(--color-text, #1b1c1f);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.cpdf__mention {
+  color: var(--color-accent, #2563eb);
+  font-weight: 600;
+}
+.cpdf__reply {
+  display: flex;
+  gap: var(--space-2, 6px);
+  align-items: center;
+}
+.cpdf__reply .cpdf__reply-input {
+  flex: 1;
+  min-width: 0; /* let the input shrink below its intrinsic width (no overflow) */
+}
+.cpdf__comment-resolved-toggle {
+  width: calc(100% - 16px);
+  margin: var(--space-2, 6px) var(--space-3, 8px);
+  padding: 6px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-secondary, #667);
+  font: 500 12px/1 var(--font-sans, system-ui, sans-serif);
+  cursor: pointer;
+  border-radius: var(--radius-md, 6px);
+}
+.cpdf__comment-resolved-toggle:hover {
+  background: var(--color-hover, rgba(0, 0, 0, 0.05));
+}
+.cpdf__anno-index {
+  border-top: 1px solid var(--color-border, rgba(0, 0, 0, 0.08));
+  margin-top: var(--space-2, 6px);
+  padding: var(--space-2, 6px) var(--space-2, 6px) var(--space-3, 8px);
+}
+.cpdf__anno-index-head {
+  padding: var(--space-2, 6px) var(--space-3, 8px) var(--space-2, 4px);
+  font: 600 11px/1 var(--font-sans, system-ui, sans-serif);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-secondary, #889);
+}
+.cpdf__comment-anchor {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: var(--radius-md, 6px);
+  background: var(--color-accent-bg, rgba(37, 99, 235, 0.1));
+  color: var(--color-accent, #2563eb);
+  font: 500 11px/1.3 var(--font-sans, system-ui, sans-serif);
+}
+.cpdf__comment-anchor span {
+  flex: 1;
+  min-width: 0;
+}
+.cpdf__comment-anchor-x {
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+  padding: 0 2px;
+}
+
+/* ── On-page comment markers ─────────────────────────────────────────────── */
+.cpdf__comment-marker {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  transform: translate(-4px, -22px); /* anchor the pin's bottom-left to the rect */
+  border: 2px solid var(--color-surface, #fff);
+  border-radius: 50% 50% 50% 2px;
+  background: var(--color-accent, #f5b301);
+  color: #1b1c1f;
+  cursor: pointer;
+  box-shadow: var(--shadow-2, 0 2px 6px rgba(0, 0, 0, 0.28));
+  padding: 0;
+}
+.cpdf__comment-marker:hover {
+  filter: brightness(1.06);
+}
+.cpdf__comment-marker:focus-visible {
+  outline: 2px solid var(--color-focus-ring, #4658ff);
+  outline-offset: 2px;
+}
+.cpdf__thread--flash {
+  animation: cpdf-thread-flash 1.6s ease-out;
+}
+@keyframes cpdf-thread-flash {
+  0%, 30% {
+    box-shadow: 0 0 0 2px var(--color-accent, #2563eb);
+    background: var(--color-accent-bg, rgba(37, 99, 235, 0.12));
+  }
+  100% {
+    box-shadow: none;
+  }
+}
+
+/* ── Pending-suggestion on-canvas styling (display-only overlay) ─────────── */
+.cpdf__suggestion-box {
+  border: 1.5px dashed var(--color-suggest, #7c3aed);
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--color-suggest, #7c3aed) 12%, transparent);
+  box-sizing: border-box;
+}
+
+/* ── Remote collaborator cursors ─────────────────────────────────────────── */
+.cpdf__cursor {
+  transform: translate(-1px, -1px);
+  transition: left 80ms linear, top 80ms linear;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.3));
+}
+.cpdf__cursor-label {
+  position: absolute;
+  left: 13px;
+  top: 12px;
+  padding: 1px 6px;
+  border-radius: 3px 8px 8px 8px;
+  color: #fff;
+  font: 600 10px/1.5 var(--font-sans, system-ui, sans-serif);
+  white-space: nowrap;
+}
+
+/* ── Signatures panel (request-to-sign + status + audit) ─────────────────── */
+.cpdf__sign-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: var(--space-3, 8px);
+}
+.cpdf__sign-input {
+  padding: 6px 8px;
+  border: 1px solid var(--color-border, rgba(0, 0, 0, 0.12));
+  border-radius: var(--radius-md, 6px);
+  background: var(--color-surface, #fff);
+  color: var(--color-text, #1b1c1f);
+  font: 400 12px/1.3 var(--font-sans, system-ui, sans-serif);
+  min-width: 0;
+}
+.cpdf__sign-recip {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 8px;
+  border-radius: var(--radius-md, 6px);
+  background: var(--color-surface-2, rgba(0, 0, 0, 0.02));
+  position: relative;
+}
+.cpdf__sign-recip-x {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-secondary, #889);
+  cursor: pointer;
+  font-size: 15px;
+}
+.cpdf__sign-add,
+.cpdf__sign-void {
+  border: none;
+  background: transparent;
+  color: var(--color-accent, #2563eb);
+  font: 500 12px/1 var(--font-sans, system-ui, sans-serif);
+  cursor: pointer;
+  padding: 6px;
+  text-align: left;
+  border-radius: var(--radius-md, 6px);
+}
+.cpdf__sign-void {
+  color: var(--color-danger, #dc2626);
+}
+.cpdf__sign-order {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font: 400 12px/1.3 var(--font-sans, system-ui, sans-serif);
+  color: var(--color-text, #1b1c1f);
+}
+.cpdf__sign-status {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: var(--space-3, 8px);
+}
+.cpdf__sign-envelope {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.cpdf__sign-doctitle {
+  font: 600 13px/1.3 var(--font-sans, system-ui, sans-serif);
+  color: var(--color-text, #1b1c1f);
+  flex: 1;
+  min-width: 0;
+}
+.cpdf__sign-badge {
+  font: 600 10px/1.5 var(--font-sans, system-ui, sans-serif);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 7px;
+  border-radius: var(--radius-pill, 999px);
+  background: var(--color-surface-2, rgba(0, 0, 0, 0.06));
+  color: var(--color-text-secondary, #556);
+}
+.cpdf__sign-badge--completed {
+  background: var(--color-success-bg, rgba(22, 121, 74, 0.14));
+  color: var(--color-success, #16794a);
+}
+.cpdf__sign-badge--declined,
+.cpdf__sign-badge--voided {
+  background: rgba(220, 38, 38, 0.12);
+  color: #b91c1c;
+}
+.cpdf__sign-signer {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px;
+  border-radius: var(--radius-md, 6px);
+  background: var(--color-surface-2, rgba(0, 0, 0, 0.02));
+}
+.cpdf__sign-signer-id strong {
+  font-size: 12px;
+}
+.cpdf__sign-signer-id span {
+  font-size: 11px;
+  color: var(--color-text-secondary, #889);
+}
+.cpdf__sign-signer-meta {
+  font-size: 11px;
+  color: var(--color-text-secondary, #778);
+  text-transform: capitalize;
+}
+.cpdf__sign-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.cpdf__sign-audit {
+  border-top: 1px solid var(--color-border, rgba(0, 0, 0, 0.08));
+  padding-top: 8px;
+}
+.cpdf__sign-audit-head {
+  font: 600 11px/1 var(--font-sans, system-ui, sans-serif);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-secondary, #889);
+  margin-bottom: 6px;
+}
+.cpdf__sign-event {
+  font: 400 11px/1.6 var(--font-sans, system-ui, sans-serif);
+  color: var(--color-text-secondary, #667);
+}
+.cpdf__sign-event-type {
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--color-text, #1b1c1f);
+}
+.cpdf__sign-hint {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--color-danger, #b45309);
+}
+.cpdf__sign-consent {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font: 400 11px/1.4 var(--font-sans, system-ui, sans-serif);
+  color: var(--color-text-secondary, #556);
+  margin-top: 2px;
+}
+.cpdf__sign-consent input {
+  margin-top: 1px;
+  flex: none;
+}
+
+/* ═══ NEOBRUTALIST viewer overrides (Phase 4) ══════════════════════════════ */
+/* Warm editor canvas so white pages separate (was cold #e0e4ea / #13151a). */
+.cpdf { background: #e6e1d6; }
+[data-theme='dark'] .cpdf { background: #100e15; }
+
+/* Page = 2px ink border + hard offset shadow (was a soft blur ring stack). */
+.cpdf__page {
+  border-radius: var(--radius-sm, 8px);
+  border: 2px solid var(--color-border);
+  box-shadow: var(--shadow-3);
+}
+
+/* Left tool rail: roomier targets, real gap, 2px structural divider. */
+.cpdf__rail {
+  gap: 4px;
+  border-right: 2px solid var(--color-border);
+  background: var(--color-surface);
+}
+.cpdf__rail-sep {
+  width: 24px;
+  height: 2px;
+  background: var(--color-border);
+  opacity: 1;
+}
+.cpdf__railbtn {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-sm, 8px);
+}
+
+/* Floating surfaces → solid bordered blocks with a hard offset shadow (no rings). */
+.cpdf__search,
+.cpdf__seltools,
+.cpdf__bottom {
+  border-radius: var(--radius-md, 10px);
+  border: 2px solid var(--color-border);
+  box-shadow: var(--shadow-3);
+}
+/* Docked panels → 2px structural border. */
+.cpdf__props { border-left: 2px solid var(--color-border); }
+.cpdf__panel { border-right: 2px solid var(--color-border); }
+
+/* ═══ NEOBRUTALIST tactile + responsive (Phase 5) ══════════════════════════ */
+/* Tactile press on the flat icon/rail buttons — the signature "press" cue. */
+.cpdf__railbtn,
+.cpdf-iconbtn {
+  transition: transform var(--dur, 140ms) var(--ease), background var(--dur, 140ms) var(--ease), color var(--dur, 140ms) var(--ease);
+}
+.cpdf__railbtn:active:not(:disabled),
+.cpdf-iconbtn:active:not(:disabled) {
+  transform: scale(0.88);
+}
+
+/* Tablet: narrow the docked panels so the canvas isn't crushed, and reveal the
+   bottom-bar scrollbar so controls can't scroll off-screen invisibly. */
+@media (max-width: 900px) {
+  .cpdf__props { width: 208px; }
+  .cpdf__panel { width: 168px; }
+}
+@media (max-width: 760px) {
+  .cpdf__bottom { scrollbar-width: thin; scrollbar-color: var(--color-border) transparent; }
+  .cpdf__bottom::-webkit-scrollbar { height: 5px; }
+  .cpdf__bottom::-webkit-scrollbar-thumb { background: var(--color-border); border-radius: 3px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cpdf__railbtn:active:not(:disabled),
+  .cpdf-iconbtn:active:not(:disabled) { transform: none; }
+}

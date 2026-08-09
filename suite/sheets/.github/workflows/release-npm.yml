@@ -1,0 +1,106 @@
+name: Release (npm)
+
+# Changesets-driven npm release for @casualoffice/sheets.
+#
+# Push to main:
+#   - If .changeset/*.md is non-empty: open / update a release PR with
+#     version bumps + CHANGELOG entries.
+#   - If empty (i.e. release PR just merged): build + `changeset publish`
+#     under the @casualoffice scope using secrets.NODE_PASS as the npm token.
+#
+# secrets.NODE_PASS — npm automation token for the @casualoffice scope.
+# secrets.NODE_USERNAME — informational only (npm token auth doesn't need it).
+
+on:
+  # Manual trigger only. Tag-then-release: cut a v* tag locally,
+  # then dispatch this workflow when ready to publish to npm.
+  # No more firing on every main merge.
+  workflow_dispatch:
+  # Also fire when an SDK-style tag is pushed (changesets-action
+  # creates these automatically on publish, but a manual
+  # `git tag @casualoffice/sheets@x.y.z && git push --tags`
+  # works too).
+  push:
+    tags:
+      - '@casualoffice/sheets@*'
+
+concurrency:
+  group: release-npm-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+  id-token: write
+
+jobs:
+  release:
+    name: Version + Publish
+    runs-on: ubuntu-latest
+    # NODE_PASS / NODE_USERNAME live as environment secrets on
+    # `github-pages`. Attaching the job to that environment is what
+    # makes `${{ secrets.NODE_PASS }}` resolve to the real token.
+    environment: github-pages
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          # Univer fork lives at vendor/univer-revamp/ as a submodule.
+          # The SDK's CasualSheets wrapper imports @univerjs/* whose
+          # specifiers resolve through pnpm.overrides to the submodule
+          # — empty submodule = unresolved types = tsc errors.
+          submodules: recursive
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: '10.33.4'
+
+      - uses: actions/setup-node@v4
+        with:
+          # Node 22 — fork's engine-render prepare script uses
+          # --experimental-strip-types (Node 22+).
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+          cache: 'pnpm'
+
+      - name: Build Univer fork (lib/ outputs)
+        # Same fork prep the docker-publish workflow runs: installs
+        # fork deps, builds lib/, swaps each fork package.json from
+        # the dev shape (./src/index.ts) to the consumable shape
+        # (./lib/es/index.js). Required so tsc's dts pass can resolve
+        # @univerjs/* types from the linked fork packages.
+        run: ./scripts/setup-fork.sh
+        shell: bash
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Build SDK
+        run: pnpm --filter @casualoffice/sheets build
+
+      # Write ~/.npmrc explicitly so `changeset publish` (and the
+      # `pnpm dlx` subshell under it) sees the auth token regardless
+      # of the temp .npmrc that setup-node creates at
+      # $NPM_CONFIG_USERCONFIG (which dlx's isolated cwd ignores).
+      - name: Configure npm auth
+        run: |
+          cat > "$HOME/.npmrc" <<EOF
+          //registry.npmjs.org/:_authToken=${NPM_TOKEN}
+          registry=https://registry.npmjs.org/
+          always-auth=true
+          EOF
+        env:
+          NPM_TOKEN: ${{ secrets.NODE_PASS }}
+
+      - name: Create release PR or publish
+        id: changesets
+        uses: changesets/action@v1
+        with:
+          version: pnpm run version-packages
+          publish: pnpm run release
+          commit: 'chore(release): version packages'
+          title: 'chore(release): version packages'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NODE_PASS }}
+          NPM_TOKEN: ${{ secrets.NODE_PASS }}

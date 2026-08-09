@@ -1,0 +1,43 @@
+[package]
+name = "casual-pdf-core"
+version = "0.0.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Shared PDF engine (PDFium) for Casual PDF — one crate, native (desktop) + wasm (browser worker) targets."
+publish = false
+
+[lib]
+# rlib: linked natively into the Tauri desktop shell.
+# cdylib: built to wasm32 for the browser worker (and a C ABI on desktop if needed).
+crate-type = ["cdylib", "rlib"]
+
+# Pure-Rust structure ops (merge/split/redact) ride on lopdf, which compiles to
+# BOTH native and wasm32 with no PDFium dependency — so surgical redaction (UX-S5)
+# runs in the browser worker via the same crate. nom_parser only; chrono/rayon
+# off to stay wasm-clean. (lopdf is MIT — locked decision #4.)
+[dependencies]
+lopdf = { version = "0.36", default-features = false }
+# 32-byte AES-256 file-encryption key for permission restriction (src/restrict.rs).
+# Base dep so it's available on native too (OS backend); the wasm target below adds
+# the wasm_js browser backend. Native (desktop/Tauri) is unaffected by the rustflag.
+getrandom = "0.3"
+cms = "0.3.0-pre.2"
+sha2 = "0.10"
+time = { version = "0.3", features = ["formatting"] }
+p256 = { version = "0.13", features = ["ecdsa", "pkcs8"] }
+
+# PDFium binding lives on native targets for Phase 0. The browser gets the same
+# engine via PDFium-WASM (EmbedPDF) today; wiring this crate's own pdfium calls
+# through a wasm PDFium build is the immediate Phase 0.5 step (see src/lib.rs).
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+pdfium-render = "0.9"
+image = { version = "0.25", default-features = false, features = ["png"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2"
+console_error_panic_hook = "0.1"
+# lopdf's (always-on) encryption pulls rand → getrandom; on wasm that needs the
+# browser crypto backend. Paired with the getrandom_backend rustflag in
+# ../../.cargo/config.toml. Runs in the worker, which has crypto.getRandomValues.
+getrandom = { version = "0.3", features = ["wasm_js"] }
+getrandom_02 = { package = "getrandom", version = "0.2", features = ["js"] }

@@ -1,0 +1,17 @@
+node_modules/
+dist/
+.vite/
+*.tsbuildinfo
+.DS_Store
+.env
+.env.local
+test-results/
+playwright-report/
+playwright/.cache/
+
+# IDE / editor
+.idea/
+*.iml
+# Stale pnpm patch-session working dirs (patches dropped for source build)
+.patch-session-slides/
+patch-session-slides/

@@ -1,0 +1,47 @@
+Casual PDF
+Copyright 2026 Sachin (schnsrw)
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+It builds on third-party open source under permissive licenses, including
+(non-exhaustive): PDFium (Apache-2.0/BSD-3), EmbedPDF (MIT), pdf-lib (MIT),
+pdfium-render (Apache-2.0/MIT), lopdf (MIT), @signpdf/signpdf (MIT),
+node-forge (BSD-3), buffer (MIT), Yjs (MIT), and Hocuspocus (MIT). See docs/RESEARCH.md
+for the full dependency/license inventory. No (A)GPL components are included.
+
+UI icons are Material Icons (Google), licensed under Apache-2.0 (in-policy),
+consumed via react-icons (MIT).
+
+Bundled fonts for metric-compatible text editing (docs/TEXT-EDITING.md, Option C)
+are licensed under the SIL Open Font License 1.1 (OFL-1.1), permitted for font
+assets per the 2026-07-04 extension of the project's dependency-license policy:
+  - Inter (the UI typeface, self-hosted via @fontsource-variable/inter),
+    Copyright The Inter Project Authors (https://github.com/rsms/inter) — bundled
+    into the web app for the neobrutalist UI type; OFL-1.1.
+  - Arimo (metric-compatible with Arial), Copyright The Arimo Project Authors —
+    packages/pdf-sdk/src/fonts/Arimo.ttf, Arimo-Italic.ttf, and the static bold
+    instances Arimo-Bold.ttf, Arimo-BoldItalic.ttf (derived from the variable
+    Arimo at wght=700 via fontTools instancer); license text in
+    packages/pdf-sdk/src/fonts/OFL.txt.
+  - Carlito (metric-compatible with Calibri), Copyright The Carlito Project
+    Authors — packages/pdf-sdk/src/fonts/Carlito-{Regular,Bold,Italic,BoldItalic}.ttf;
+    license text in packages/pdf-sdk/src/fonts/OFL-Carlito.txt.
+  - Tinos (Times New Roman), Cousine (Courier New), Caladea (Cambria) —
+    Copyright the respective Project Authors —
+    packages/pdf-sdk/src/fonts/{Tinos,Cousine,Caladea}-{Regular,Bold,Italic,BoldItalic}.ttf;
+    license text in packages/pdf-sdk/src/fonts/OFL-{Tinos,Cousine,Caladea}.txt.
+In addition to the bundled faces above, text editing can resolve ~30 common
+Google Fonts (Roboto, Open Sans, Lato, Montserrat, Poppins, Inter, …) by fetching
+their TTF on demand from the google/fonts repository via the jsdelivr CDN, plus
+Noto Sans and Noto Sans SC as broad Unicode / CJK fallbacks. These are likewise
+SIL Open Font License 1.1 (OFL-1.1) and are not redistributed in this repository —
+they are fetched at runtime only when a document actually uses one.
+
+Tiny font subsets are vendored as TEST fixtures only (not part of the shipped
+application), each covering just the glyphs its test uses:
+  - tools/render-parity/fixtures/noto-cjk-test.ttf — a subset of Noto Sans SC
+    (OFL-1.1, Copyright The Noto Project Authors), ~5 KB.
+  - tools/render-parity/fixtures/roboto-latin-test.ttf — a subset of Roboto
+    (OFL-1.1/Apache-2.0, Copyright The Roboto Project Authors), Latin only.
+
+Font subsetting/embedding uses @pdf-lib/fontkit (MIT).

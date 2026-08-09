@@ -1,0 +1,108 @@
+{
+  "name": "@casualoffice/pdf",
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Casual PDF embeddable SDK — viewer/editor with view/edit/suggest modes and optional collab.",
+  "license": "Apache-2.0",
+  "main": "./src/index.ts",
+  "module": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts"
+    },
+    "./sign": {
+      "types": "./src/sign.ts",
+      "import": "./src/sign.ts"
+    },
+    "./verify": {
+      "types": "./src/verify.ts",
+      "import": "./src/verify.ts"
+    },
+    "./page-furniture": {
+      "types": "./src/page-furniture.ts",
+      "import": "./src/page-furniture.ts"
+    },
+    "./merge": {
+      "types": "./src/merge.ts",
+      "import": "./src/merge.ts"
+    },
+    "./restrict": {
+      "types": "./src/restrict.ts",
+      "import": "./src/restrict.ts"
+    },
+    "./signing-certificate": {
+      "types": "./src/signing-certificate.ts",
+      "import": "./src/signing-certificate.ts"
+    },
+    "./extract": {
+      "types": "./src/extract.ts",
+      "import": "./src/extract.ts"
+    },
+    "./ai": {
+      "types": "./src/ai/index.ts",
+      "import": "./src/ai/index.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc --noEmit",
+    "build:mcp": "node scripts/build-mcp.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "bin": {
+    "casual-pdf-mcp": "./dist/mcp/server.mjs"
+  },
+  "peerDependencies": {
+    "@hocuspocus/provider": "^2.15.0",
+    "react": ">=18.0.0 <20.0.0",
+    "react-dom": ">=18.0.0 <20.0.0",
+    "yjs": "^13.6.0"
+  },
+  "peerDependenciesMeta": {
+    "@hocuspocus/provider": {
+      "optional": true
+    }
+  },
+  "dependencies": {
+    "@embedpdf/core": "^2.14.4",
+    "@embedpdf/engines": "^2.14.4",
+    "@embedpdf/models": "^2.14.4",
+    "@embedpdf/pdfium": "2.14.4",
+    "@embedpdf/plugin-annotation": "^2.14.4",
+    "@embedpdf/plugin-bookmark": "^2.14.4",
+    "@embedpdf/plugin-document-manager": "^2.14.4",
+    "@embedpdf/plugin-export": "^2.14.4",
+    "@embedpdf/plugin-form": "2.14.4",
+    "@embedpdf/plugin-fullscreen": "^2.14.4",
+    "@embedpdf/plugin-history": "^2.14.4",
+    "@embedpdf/plugin-interaction-manager": "^2.14.4",
+    "@embedpdf/plugin-pan": "^2.14.4",
+    "@embedpdf/plugin-render": "^2.14.4",
+    "@embedpdf/plugin-rotate": "^2.14.4",
+    "@embedpdf/plugin-scroll": "^2.14.4",
+    "@embedpdf/plugin-search": "^2.14.4",
+    "@embedpdf/plugin-selection": "^2.14.4",
+    "@embedpdf/plugin-signature": "2.14.4",
+    "@embedpdf/plugin-spread": "^2.14.4",
+    "@embedpdf/plugin-thumbnail": "^2.14.4",
+    "@embedpdf/plugin-tiling": "^2.14.4",
+    "@embedpdf/plugin-viewport": "^2.14.4",
+    "@embedpdf/plugin-zoom": "^2.14.4",
+    "@pdf-lib/fontkit": "^1.1.1",
+    "@signpdf/placeholder-plain": "^3.3.0",
+    "@signpdf/signer-p12": "^3.3.0",
+    "@signpdf/signpdf": "^3.3.0",
+    "lucide-react": "^0.469.0",
+    "node-forge": "^1.4.0",
+    "pdf-lib": "^1.17.1"
+  },
+  "devDependencies": {
+    "@hocuspocus/provider": "^2.15.2",
+    "@types/node-forge": "^1.3.11",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "typescript": "^5.6.3",
+    "yjs": "^13.6.21"
+  }
+}

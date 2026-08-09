@@ -1,0 +1,6883 @@
+/**
+ * Copyright 2026 Casual Office
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Design tokens — sourced from @schnsrw/design-system (Phase 4).
+   `@schnsrw/design-system/tokens.css` is imported at the app entry
+   (apps/web/src/main.tsx) BEFORE this file, installing every colour /
+   surface / spacing / radius / shadow / motion / typography token on
+   :root, plus the dark ramp under [data-theme="dark"] and the
+   `.cs-anim-*` motion utilities. The whole UI now restyles from the
+   design-system — this file no longer redeclares those tokens (doing so
+   shadowed the system and kept the app on its own local values).
+
+   Layout-height tokens (--titlebar-h 64 / --toolbar-h 66 / --formula-bar-h
+   26 / --sheet-tabs-h 28 / --statusbar-h 24) are IDENTICAL in the design-
+   system, so adopting it causes no layout shift — only the colour / radius
+   (4→6 px controls) / motion / shadow "feel" updates land. `--menubar-h`
+   is intentionally not declared (the menu bar lives inline in the title
+   bar); kept as a note so a search for it lands here.
+
+   App-local tokens the design-system intentionally doesn't own are defined
+   where they're used: --titlebar-row-pad (below), --mobile-bar-h (mobile
+   media query), the --admin-* set (admin panel), and runtime collab /
+   template vars (--cols, --name-color, --presence-color, --tpl-accent).
+   ───────────────────────────────────────────────────────────────────────── */
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Dark theme — the colour ramp is owned by the design-system
+   ([data-theme="dark"] in tokens.css), applied to <html data-theme="dark">
+   by apps/web/src/theme.ts. We only set color-scheme here so native form
+   controls / scrollbars switch; component-level dark overrides that use
+   hardcoded warm/cool tones (banners etc.), not the neutral tokens, follow
+   below.
+   ───────────────────────────────────────────────────────────────────────── */
+html[data-theme='dark'] {
+  color-scheme: dark;
+}
+
+/* Banner dark variants are no longer hand-coded — the autosave (warning)
+   and preview (info) banners now use --color-warning* / --color-info*
+   tokens, which auto-theme under [data-theme="dark"]. */
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Reset / base — lock the viewport. Nothing outside the grid ever scrolls.
+   ───────────────────────────────────────────────────────────────────────── */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  width: 100%;
+  overflow: hidden; /* SPA: body never scrolls — Univer handles grid scroll */
+  overscroll-behavior: none;
+}
+
+body {
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: var(--leading-normal);
+  color: var(--color-text);
+  background: var(--color-bg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  font-feature-settings: 'cv11', 'ss01', 'ss03';
+}
+
+button {
+  font: inherit;
+  color: inherit;
+}
+
+:focus {
+  outline: none;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 1px;
+  border-radius: var(--radius-sm);
+}
+
+/* Material Symbols Outlined — single source of icon truth.
+   Sized to Material's recommended scale: 16 (sm) / 20 (md) / 24 (lg).
+   Excel-faithful ribbon buttons read better at 20 in the small rows and
+   24 in primary actions; previous 18 felt cramped. The variable-font
+   `opsz` axis is bumped in lockstep so stroke optical weight matches
+   the glyph size. */
+.icon {
+  font-family: 'Material Symbols Outlined';
+  font-weight: normal;
+  font-style: normal;
+  font-size: 20px;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-block;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  font-feature-settings: 'liga';
+  -webkit-font-feature-settings: 'liga';
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  font-variation-settings:
+    'FILL' 0,
+    'wght' 400,
+    'GRAD' 0,
+    'opsz' 24;
+}
+
+.icon--sm {
+  font-size: 16px;
+  font-variation-settings:
+    'FILL' 0,
+    'wght' 400,
+    'GRAD' 0,
+    'opsz' 20;
+}
+.icon--lg {
+  font-size: 24px;
+  font-variation-settings:
+    'FILL' 0,
+    'wght' 400,
+    'GRAD' 0,
+    'opsz' 28;
+}
+.icon--filled {
+  font-variation-settings:
+    'FILL' 1,
+    'wght' 500,
+    'GRAD' 0,
+    'opsz' 24;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   App shell — strict grid, only the grid row stretches.
+   ───────────────────────────────────────────────────────────────────────── */
+.app {
+  display: grid;
+  /* Named-area layout. Auto-placement was shifting grid-row into the
+     wrong track when the toolbar (or formula bar) is display:none —
+     items fell into the toolbar's row instead of the 1fr below it,
+     and the grid host collapsed to a few-pixel sliver at narrow
+     viewports. Explicit areas pin each chrome row to its slot
+     regardless of which siblings are present.
+     `mobilebar` row collapses to 0 on desktop (`--mobile-bar-h: 0px`),
+     so the strip is invisible there but the grid stays well-formed
+     for the auto-placed React node. */
+  /* Toolbar + formula-bar tracks include their floating-card margins
+     (--space-2 top+bottom = --space-4 total) so the card content keeps its
+     full --toolbar-h / --formula-bar-h height. */
+  grid-template-rows:
+    var(--titlebar-h)
+    calc(var(--toolbar-h) + var(--space-4))
+    auto /* banner — autosave restore / preview; collapses to 0 when no banner is rendered */
+    var(--formula-bar-h)
+    minmax(0, 1fr)
+    var(--mobile-bar-h, 0px)
+    var(--sheet-tabs-h)
+    var(--statusbar-h);
+  grid-template-areas:
+    'titlebar'
+    'toolbar'
+    'banner'
+    'formulabar'
+    'gridrow'
+    'mobilebar'
+    'sheettabs'
+    'statusbar';
+  height: 100dvh;
+  width: 100vw;
+  overflow: hidden;
+  /* One consistent chrome colour everywhere (matches the footer's grey):
+     titlebar, toolbar, formula bar, the desk behind the canvas, and the
+     sheet-tabs/status strips all use --editor-desk. Only the content cards
+     (canvas + side panels) are white. */
+  background: var(--editor-desk);
+  --editor-desk: var(--color-surface-strip);
+  /* App-scoped: taller formula bar than the DS default (26px) — at 26 the
+     bar reads cramped and a floating treatment would backfire. Scoped to
+     .app so the shared DS token (and the SDK) are untouched. */
+  --formula-bar-h: 32px;
+}
+
+.app--no-formula-bar {
+  grid-template-rows:
+    var(--titlebar-h)
+    calc(var(--toolbar-h) + var(--space-4))
+    auto /* banner row — same as above */
+    minmax(0, 1fr)
+    var(--mobile-bar-h, 0px)
+    var(--sheet-tabs-h)
+    var(--statusbar-h);
+  grid-template-areas:
+    'titlebar'
+    'toolbar'
+    'banner'
+    'gridrow'
+    'mobilebar'
+    'sheettabs'
+    'statusbar';
+}
+
+.app > .titlebar {
+  grid-area: titlebar;
+}
+.app > .toolbar {
+  grid-area: toolbar;
+}
+/* Both banners (autosave restore + version-history preview) land in
+   the same auto-height row. They never render simultaneously — the
+   autosave banner only appears on first load before any edit, and
+   the preview banner only appears in version-history preview mode. */
+.app > .autosave-banner {
+  grid-area: banner;
+}
+.app > .preview-banner {
+  grid-area: banner;
+}
+.app > .formula-bar {
+  grid-area: formulabar;
+}
+.app > .grid-row {
+  grid-area: gridrow;
+}
+.app > .mobile-bar {
+  grid-area: mobilebar;
+}
+.app > .sheet-tabs {
+  grid-area: sheettabs;
+}
+
+/* ── Menu bar (Google-Sheets style top dropdowns) ───────────────────────── */
+.menubar {
+  display: flex;
+  align-items: stretch;
+  height: var(--menubar-h);
+  padding: 0 var(--space-3);
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-divider);
+  font-size: 13px;
+  z-index: 3;
+}
+
+.menubar__item {
+  display: inline-flex;
+  align-items: center;
+  height: 100%;
+  padding: 0 var(--space-4);
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--color-text);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  margin: var(--space-1) 0;
+  transition: background var(--motion-fast) var(--ease-out);
+}
+
+.menubar__item:hover,
+.menubar__item--open {
+  background: var(--color-hover);
+}
+
+.menubar__item--open {
+  background: var(--color-pressed);
+}
+
+/* ── Toolbar — zone 1 (cool grey). The bg shift vs white menubar above
+   and white formula bar below provides the layer separation. Subtle inset
+   shadow on top gives the strip a slight recessed feel. */
+.toolbar {
+  position: relative; /* anchors the overflow chevron buttons */
+  display: flex;
+  align-items: stretch;
+  height: var(--toolbar-h);
+  background: var(--editor-desk);
+  padding: 0;
+  /* Floating rounded "menu" card on the grey chrome — same grey as the
+     titlebar/formula bar; a hairline + soft shadow define it (grey-on-grey
+     needs the border to read). */
+  margin: var(--space-2) var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-1);
+  z-index: 2;
+  /* As a CSS Grid row of `.app`, default `min-width: auto` keeps this
+     element at the min-content size of its descendants — which on a
+     dense toolbar exceeds the viewport and breaks the scroll-clip
+     contract we rely on for the overflow chevrons. `min-width: 0`
+     lets the grid cell shrink so the inner scroller can engage. */
+  min-width: 0;
+}
+
+/* Overflow chevrons that appear at either edge when more toolbar
+   buttons exist off-screen. Float over the underlying inner scroller
+   with a soft fade so the cropped icon below them still hints at
+   continued content. */
+.toolbar__overflow {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  cursor: pointer;
+  color: var(--color-text-secondary);
+  z-index: 3;
+}
+.toolbar__overflow--left {
+  left: 0;
+  /* Fade to the surface colour at 0 alpha (theme-aware). A hardcoded light
+     rgba here left a pale ghost edge in dark mode. */
+  background: linear-gradient(
+    to right,
+    var(--color-surface-alt) 60%,
+    color-mix(in srgb, var(--color-surface-alt) 0%, transparent)
+  );
+}
+.toolbar__overflow--right {
+  right: 0;
+  background: linear-gradient(
+    to left,
+    var(--color-surface-alt) 60%,
+    color-mix(in srgb, var(--color-surface-alt) 0%, transparent)
+  );
+}
+.toolbar__overflow:hover {
+  color: var(--color-text);
+}
+.toolbar__overflow:focus-visible {
+  outline: 2px solid var(--color-focus, var(--color-accent, #0e7490));
+  outline-offset: -2px;
+  color: var(--color-text);
+}
+
+.toolbar__inner {
+  display: flex;
+  align-items: center;
+  height: 100%;
+  padding: 0 var(--space-5);
+  gap: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  /* As a flex item inside .toolbar, take whatever width is left after
+     the (absolutely-positioned) chevrons. `min-width: 0` is essential
+     — without it, a flex item's default `min-width: auto` keeps the
+     element at its content's intrinsic width and scrolling never
+     engages. */
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.toolbar__inner::-webkit-scrollbar {
+  display: none;
+}
+
+/* ── Static 2-row ribbon group ──────────────────────────────────────
+   Each group is a vertical stack: button-body (top) + label (bottom).
+   Inside the body, row1 + row2 are explicit slots so each group has a
+   hand-designed layout (no auto-wrap heuristics). Faint vertical
+   dividers between groups, label centered below. */
+.toolbar .ribbon__group {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  height: 100%;
+  padding: 4px var(--space-3) 2px;
+  border-right: 1px solid rgba(0, 0, 0, 0.08);
+  flex-shrink: 0;
+}
+
+.toolbar .ribbon__group:first-child {
+  padding-left: var(--space-2);
+}
+.toolbar .ribbon__group:last-child {
+  border-right: 0;
+  padding-right: var(--space-2);
+}
+
+/* Legacy single-row body (back-compat — anything not migrated to
+   row1/row2 lays out as a single horizontal row). */
+.toolbar .ribbon__group-body {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 2px;
+  flex: 1 1 auto;
+}
+
+/* Two-row body. When a `lead` (BigToolbarButton) is present, it sits
+   to the LEFT of the row1/row2 stack and spans both rows. Otherwise
+   the stack fills the body's width on its own. */
+.toolbar .ribbon__group-body--two-row {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 4px;
+  height: 100%;
+}
+.toolbar .ribbon__group-lead {
+  display: flex;
+  align-items: stretch;
+}
+.toolbar .ribbon__group-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 2px;
+}
+.toolbar .ribbon__group-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 2px;
+  height: 28px;
+}
+
+/* Big "primary" button — icon stacked on top of label, optional
+   chevron at bottom. Spans both rows of the group. Reserved for
+   group-defining actions (Paste, future Styles/Cells).
+   box-sizing: border-box is critical — without it, the 4-px vertical
+   padding pushes the button below its container and the label clips
+   out of view, leaving only the icon visible at the top. */
+.toolbar .btn--big {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-width: 56px;
+  height: 100%;
+  padding: 4px 8px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  color: var(--color-text);
+  /* Override the .btn defaults that would force a 28-px height and
+     horizontal layout. */
+  min-height: 0;
+}
+.toolbar .btn--big:hover:not(:disabled) {
+  background: var(--color-hover);
+}
+.toolbar .btn--big:disabled {
+  color: var(--color-text-disabled);
+  cursor: not-allowed;
+}
+.toolbar .btn--big .icon {
+  font-size: 28px;
+  line-height: 1;
+  font-variation-settings:
+    'FILL' 0,
+    'wght' 400,
+    'GRAD' 0,
+    'opsz' 32;
+}
+.toolbar .btn__big-label {
+  font-size: 11px;
+  line-height: 12px;
+  white-space: nowrap;
+}
+.toolbar .btn__big-chevron {
+  font-size: 14px;
+  color: var(--color-text-secondary);
+  line-height: 1;
+}
+
+/* Group labels hidden inside the toolbar — icons are self-explanatory
+   on hover (tooltips already do the work). Hiding the labels recovers
+   ~14 px of vertical room and reduces visual noise. */
+.toolbar .ribbon__group-label {
+  display: none;
+}
+
+/* Buttons / selects inside the pill — slightly smaller and rounded. */
+.toolbar .btn {
+  height: 28px;
+  min-width: 28px;
+  border-radius: var(--radius-md);
+  background: transparent;
+}
+
+/* `.btn--big` opts out of the 28-px height clamp so the BigButton can
+   fill both rows. The above .toolbar .btn rule has the same specificity
+   as .toolbar .btn--big and would otherwise win by cascade order. */
+.toolbar .btn.btn--big {
+  height: 100%;
+  min-width: 56px;
+}
+
+.toolbar .btn:hover:not(:disabled) {
+  background: var(--color-hover);
+}
+
+.toolbar .btn[aria-pressed='true'] {
+  background: var(--color-selected);
+  color: var(--color-accent);
+  border-color: transparent;
+}
+
+.toolbar .btn[aria-pressed='true']:hover:not(:disabled) {
+  background: var(--color-selected-strong);
+}
+
+/* Dropdowns sit on the toolbar's grey background. With transparent
+   borders the input edge disappears into the toolbar — looks like
+   loose text, not a control. Give them a solid white background + a
+   1 px border so they read as distinct boxes (Excel does the same). */
+.toolbar .ribbon__select {
+  height: 24px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-strong);
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+}
+
+.toolbar .ribbon__select:hover:not(:disabled) {
+  border-color: var(--color-text-secondary);
+}
+
+.toolbar .ribbon__select:focus {
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 1px var(--color-accent);
+}
+
+.toolbar .btn-split,
+.toolbar .btn-color {
+  height: 28px;
+  background: transparent;
+}
+
+.toolbar .btn-split__icon,
+.toolbar .btn-color__icon {
+  height: 28px;
+  width: 28px;
+  background: transparent;
+}
+
+.toolbar .btn-split__caret,
+.toolbar .btn-color__picker {
+  height: 28px;
+  background: transparent;
+}
+
+.toolbar .btn-split__icon:hover,
+.toolbar .btn-color__icon:hover {
+  background: var(--color-hover);
+}
+
+.toolbar .btn-split__caret:hover,
+.toolbar .btn-color__picker:hover {
+  background: var(--color-hover);
+}
+
+/* Inside the toolbar, normalize sizes so buttons and selects align cleanly. */
+.toolbar .btn {
+  height: 26px;
+  min-width: 26px;
+}
+
+.toolbar .ribbon__select {
+  height: 26px;
+}
+
+.toolbar .btn-split__icon {
+  height: 26px;
+  width: 26px;
+}
+
+.toolbar .btn-split__caret {
+  height: 26px;
+}
+
+.toolbar .btn-color__icon {
+  height: 26px;
+  width: 26px;
+}
+
+.toolbar .btn-color__picker {
+  height: 26px;
+}
+
+/* Title bar — zone 0 (white). Bigger brand for stronger top-of-page identity. */
+/* Title bar — Google-Docs-style two-row layout, mirroring docx-editor.
+   Outer flex with `align-items: stretch`. Three columns:
+     • brand: fixed-width logo, vertically centered, full height
+     • center: filename row stacked above menu row, vertically centered
+     • actions: action buttons, vertically centered, full height
+   The single source of truth for "left edge of text rows" is the
+   `--titlebar-row-pad` token — both the filename hover bg and the
+   first menu item inherit it, so the two rows line up perfectly.
+*/
+.titlebar {
+  --titlebar-row-pad: 6px;
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+  height: var(--titlebar-h);
+  padding: 0 16px;
+  background: var(--editor-desk);
+  color: var(--color-text);
+  user-select: none;
+  letter-spacing: 0;
+  z-index: 4;
+}
+
+.titlebar > .titlebar__brand {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.titlebar__center {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  flex: 1;
+  min-width: 0;
+  padding: 4px 0;
+  gap: 1px;
+}
+.titlebar__center-top {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  height: 26px;
+  font-size: 14px;
+  line-height: 1;
+}
+.titlebar__center-bottom {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  height: 28px;
+  font-size: 13px;
+  line-height: 1;
+}
+
+/* MenuBar mounts inline inside the title bar — strip the standalone
+   strip's bg/border treatment so it visually belongs to the title bar.
+   The `gap` puts breathing room between menu items without bloating
+   each item's own padding (which would break the first-item left-edge
+   alignment with the filename row). */
+.titlebar__center-bottom > .menubar {
+  background: transparent;
+  border-bottom: 0;
+  padding: 0;
+  margin: 0;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+}
+/* Menu items: same horizontal padding as filename so both rows share
+   a vertical baseline on the left. Height matches the row exactly so
+   no extra margins push them around. */
+.titlebar__center-bottom .menubar__item {
+  height: 24px;
+  margin: 0;
+  padding: 0 var(--titlebar-row-pad);
+  font-size: inherit;
+  line-height: 1;
+}
+
+/* Filename row — text starts at the same X as the first menu item so
+   the two rows visually align. Hover background reads as a pill that
+   shares the same horizontal padding. */
+.titlebar__center-top .titlebar__filename {
+  padding: 0 var(--titlebar-row-pad);
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  font-size: inherit;
+  line-height: 1;
+}
+.titlebar__center-top .titlebar__filename-input {
+  padding: 0 var(--titlebar-row-pad);
+  height: 22px;
+  font-size: inherit;
+  line-height: 1;
+}
+/* Both filename + first menu item shift LEFT by the shared padding
+   so their text starts flush with the centre column's left edge.
+   This is what makes "Untitled" and "File" land on the same vertical
+   line instead of File sitting `var(--space-3)` to the right. */
+.titlebar__center-top .titlebar__filename,
+.titlebar__center-top .titlebar__filename-input,
+.titlebar__center-bottom .menubar__item:first-child {
+  margin-left: calc(var(--titlebar-row-pad) * -1);
+}
+
+.titlebar__brand {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+  color: var(--color-text);
+  font-weight: var(--weight-semibold);
+  font-size: 16px;
+  text-decoration: none;
+}
+
+.titlebar__brand:hover {
+  text-decoration: none;
+}
+
+.titlebar__brand-icon {
+  width: 28px;
+  height: 36px;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.titlebar__divider {
+  width: 1px;
+  height: 18px;
+  background: var(--color-divider);
+}
+
+.titlebar__filename {
+  font-weight: var(--weight-medium, 500);
+  color: var(--color-text);
+  font-size: inherit;
+  background: transparent;
+  border: 0;
+  padding: 2px var(--space-3);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-family: inherit;
+  line-height: 1.4;
+  transition: background var(--motion-fast) var(--ease-out);
+}
+
+.titlebar__filename:hover {
+  background: var(--color-hover);
+}
+
+.titlebar__filename-input {
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: var(--weight-medium, 500);
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-md);
+  padding: 2px var(--space-3);
+  min-width: 220px;
+  outline: none;
+  /* DS input focus signature: soft 3px accent-soft glow (Phase 4). */
+  box-shadow: var(--glow-accent);
+}
+
+.titlebar__spacer {
+  flex: 1;
+}
+
+.titlebar__actions {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 10px;
+}
+
+/* Collaboration cluster — presence avatars + name + share/room, grouped as
+   one unit (tighter internal gap than the surrounding actions row). */
+.titlebar__collab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Local-user chip — shown in the desktop build in place of the collab cluster
+   (single-user, no co-editing). Just identifies who you're signed in as. */
+.titlebar__profile-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px 4px 4px;
+  border-radius: 999px;
+  background: transparent;
+  border: 1px solid var(--color-divider);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  color: var(--color-text);
+  user-select: none;
+}
+.titlebar__profile-avatar {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  color: #fff;
+  font-size: 10px;
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.02em;
+}
+.titlebar__profile-name {
+  white-space: nowrap;
+}
+
+/* Thin vertical divider separating the three logical action groups
+   (status pills · collaboration · account). Collapses on mobile. */
+.titlebar__sep {
+  width: 1px;
+  align-self: center;
+  height: 20px;
+  background: var(--color-divider);
+  flex-shrink: 0;
+}
+
+.titlebar__share {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: var(--weight-semibold, 600);
+}
+
+.titlebar__roompill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--color-accent-soft, var(--color-surface-alt));
+  color: var(--color-accent);
+  font-size: 12px;
+  font-weight: var(--weight-medium, 500);
+  border: 1px solid color-mix(in srgb, var(--color-accent) 40%, transparent);
+}
+
+/* Editable display-name pill — visible only while in a co-edit room.
+   Colour dot mirrors the user's awareness colour so what they see in
+   their own avatar matches what peers see for them. Hover reveals
+   the edit-pencil; clicking swaps to an inline input. */
+.titlebar__namepill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px 4px 6px;
+  border-radius: var(--radius-pill);
+  /* DS Pill neutral well (Phase 4). */
+  background: var(--color-toolbar-pill);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 12px;
+  font-weight: var(--weight-medium, 500);
+  border: 1px solid var(--color-divider);
+  cursor: pointer;
+  transition: background var(--motion-fast) var(--ease-out);
+}
+.titlebar__namepill:hover {
+  background: var(--color-hover);
+}
+.titlebar__namepill .icon {
+  font-size: 14px;
+  opacity: 0.5;
+  margin-left: 2px;
+}
+.titlebar__namepill:hover .icon {
+  opacity: 1;
+}
+.titlebar__namepill-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--name-color, var(--color-accent));
+  display: inline-block;
+}
+.titlebar__namepill-text {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.titlebar__namepill-input {
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--color-accent);
+  background: var(--color-surface);
+  color: var(--color-text);
+  width: 160px;
+  outline: none;
+}
+
+/* Title-bar icon-only action button (theme toggle today, room for more
+   later). Square hit area, no padding-baked text — relies on the icon
+   itself for sizing. */
+.titlebar__icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition:
+    background var(--motion-fast) var(--ease-out),
+    color var(--motion-fast) var(--ease-out);
+}
+.titlebar__icon-btn:hover {
+  background: var(--color-hover);
+  color: var(--color-text);
+}
+.titlebar__icon-btn:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: -2px;
+}
+
+/* Working-on-it pill — fires while a known-slow action is mid-flight
+   (Format as Table on big sheets, Sort, Fill). Click-through so the
+   user can still hit other UI. */
+.busy-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px 4px 8px;
+  border-radius: 999px;
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+  font-size: 12px;
+  font-weight: var(--weight-medium, 500);
+  pointer-events: none;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.busy-pill__spinner {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--color-accent) 25%, transparent);
+  border-top-color: var(--color-accent);
+  animation: busy-pill-spin 0.8s linear infinite;
+  flex: 0 0 auto;
+}
+
+@keyframes busy-pill-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* SaveStatusPill — shares the rotation curve with busy-pill but uses
+   its own keyframe name so future per-pill tuning stays decoupled. */
+@keyframes save-status-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Ribbon */
+.ribbon {
+  display: flex;
+  flex-direction: column;
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+  z-index: 3;
+}
+
+.ribbon__tabs {
+  display: flex;
+  align-items: stretch;
+  height: 28px;
+  padding: 0 var(--space-3);
+  gap: 0;
+  border-bottom: 1px solid var(--color-divider);
+  background: var(--color-surface);
+}
+
+.ribbon__tab {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  height: 100%;
+  padding: 0 var(--space-5);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--color-text-secondary);
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  transition:
+    color var(--motion-fast) var(--ease-out),
+    border-color var(--motion-fast) var(--ease-out),
+    background var(--motion-fast) var(--ease-out);
+}
+
+.ribbon__tab:hover {
+  background: var(--color-hover);
+  color: var(--color-text);
+}
+
+.ribbon__tab[aria-selected='true'] {
+  color: var(--color-accent);
+  border-bottom-color: var(--color-accent);
+}
+
+/* (Legacy — kept in case any flow still mounts the old tabbed ribbon's
+   File tab; current shell uses MenuBar instead.) */
+.ribbon__tab--file {
+  background: transparent;
+  color: var(--color-text);
+}
+
+.ribbon__body {
+  flex: 1;
+  display: flex;
+  align-items: stretch;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-surface-alt);
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+}
+
+.ribbon__group {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-2);
+  padding: 0 var(--space-4);
+  border-right: 1px solid var(--color-divider);
+  flex-shrink: 0;
+}
+
+.ribbon__group:last-child {
+  border-right: 0;
+}
+
+.ribbon__group-body {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.ribbon__group-body--rows {
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-1);
+  padding-top: var(--space-1);
+}
+
+.ribbon__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: 26px;
+}
+
+.ribbon__group-label {
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+  text-align: center;
+  line-height: 1;
+  padding-top: var(--space-1);
+  user-select: none;
+  letter-spacing: 0.02em;
+}
+
+.ribbon__empty {
+  display: inline-flex;
+  align-items: center;
+  height: 100%;
+  padding: 0 var(--space-5);
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+  font-style: italic;
+}
+
+/* Buttons — Fluent v8 toolbar feel */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  min-width: 28px;
+  padding: 0 var(--space-3);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  cursor: pointer;
+  transition:
+    background var(--motion-fast) var(--ease-out),
+    border-color var(--motion-fast) var(--ease-out),
+    color var(--motion-fast) var(--ease-out);
+}
+
+.btn:hover:not(:disabled) {
+  background: var(--color-hover);
+}
+
+.btn:active:not(:disabled) {
+  background: var(--color-pressed);
+}
+
+.btn:disabled {
+  color: var(--color-text-disabled);
+  cursor: not-allowed;
+}
+
+.btn--icon {
+  padding: 0;
+}
+
+.btn[aria-pressed='true'] {
+  background: var(--color-selected);
+  border-color: transparent;
+  color: var(--color-accent);
+}
+
+.btn[aria-pressed='true']:hover:not(:disabled) {
+  background: var(--color-selected-strong);
+}
+
+/* Ribbon select (font family, font size) */
+.ribbon__select {
+  height: 28px;
+  padding: 0 var(--space-3);
+  font-family: inherit;
+  font-size: var(--text-sm);
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: border-color var(--motion-fast) var(--ease-out);
+}
+
+.ribbon__select:hover:not(:disabled) {
+  border-color: var(--color-text-secondary);
+}
+.ribbon__select:focus {
+  outline: none;
+  border-color: var(--color-focus-ring);
+}
+.ribbon__select:disabled {
+  color: var(--color-text-disabled);
+  cursor: not-allowed;
+}
+
+/* Generic split button (icon + caret with popover) */
+.btn-split {
+  position: relative;
+  display: inline-flex;
+  align-items: stretch;
+  border-radius: var(--radius-sm);
+}
+
+.btn-split__icon {
+  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+}
+
+.btn-split__caret {
+  width: 16px;
+  min-width: 16px;
+  padding: 0;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  color: var(--color-text-secondary);
+}
+
+.btn-split__caret .icon {
+  font-size: 16px;
+}
+
+/* Split color button: icon (apply last chosen) + caret (open picker) */
+.btn-color {
+  display: inline-flex;
+  align-items: stretch;
+  border-radius: var(--radius-sm);
+}
+
+.btn-color__icon {
+  position: relative;
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+}
+
+.btn-color__icon .icon {
+  font-size: 14px;
+  margin-bottom: 2px;
+}
+
+.btn-color__swatch {
+  position: absolute;
+  bottom: 2px;
+  left: 4px;
+  right: 4px;
+  height: 3px;
+  border-radius: 1px;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12);
+}
+
+.btn-color__picker {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 26px;
+  cursor: pointer;
+  color: var(--color-text-secondary);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  transition: background var(--motion-fast) var(--ease-out);
+}
+
+.btn-color__picker:hover {
+  background: var(--color-hover);
+}
+
+.btn-color__picker input[type='color'] {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+
+/* Formula bar — zone 0 (white) again, separating itself from the grey
+   toolbar above and the white grid below by simply changing colour. */
+.formula-bar {
+  display: flex;
+  align-items: stretch;
+  height: var(--formula-bar-h);
+  background: var(--editor-desk);
+  z-index: 2;
+}
+
+.formula-bar__name-box {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 96px;
+  width: 96px;
+  height: 100%;
+  padding: 0 var(--space-4);
+  font-family: inherit;
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  border: 0;
+  border-right: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  outline: none;
+}
+
+.formula-bar__name-box:focus {
+  background: var(--color-surface-strong, var(--color-surface));
+  box-shadow: inset 0 0 0 2px var(--color-accent, #1a73e8);
+}
+
+.formula-bar__selection-mode {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 10px;
+  margin-left: 6px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--color-warning);
+  background: var(--color-warning-soft);
+  border: 1px solid color-mix(in srgb, var(--color-warning) 40%, transparent);
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+/* "3R × 2C" badge between the Name Box and the formula actions when
+   the selection spans more than one cell. Excel shows this transiently
+   during drag; we keep it visible while the multi-cell selection is
+   active so the info doesn't blink away. */
+.formula-bar__sel-dims {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  margin-left: 6px;
+  font-size: 11.5px;
+  font-weight: var(--weight-medium, 500);
+  color: var(--color-text-secondary);
+  background: var(--color-surface-alt);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.formula-bar__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0 var(--space-3);
+  border-right: 1px solid var(--color-border);
+}
+
+.formula-bar__action {
+  height: 20px;
+  min-width: 20px;
+  padding: 0;
+}
+
+.formula-bar__action:disabled {
+  /* Use colour dimming instead of opacity so the icon glyph stays
+     legible against the bar background. opacity: 0.4 made the ✓/×
+     icons feel "missing" rather than "disabled". */
+  color: var(--color-text-disabled);
+  cursor: not-allowed;
+}
+
+.formula-bar__fx {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-style: italic;
+  color: var(--color-text-secondary);
+  background: transparent;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  user-select: none;
+}
+
+.formula-bar__fx:hover {
+  color: var(--color-text);
+}
+
+.formula-bar__input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0 var(--space-5);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 0;
+  outline: none;
+}
+
+.formula-bar__input:focus {
+  background: var(--color-surface);
+  box-shadow: inset 0 -1px 0 var(--color-accent);
+}
+
+.formula-bar__input:disabled {
+  color: var(--color-text-disabled);
+  background: var(--color-surface-alt);
+}
+
+/* Formula autocomplete popover */
+.formula-suggestions {
+  position: fixed;
+  list-style: none;
+  margin: 0;
+  padding: var(--space-2);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-3);
+  z-index: 1100;
+  max-height: 280px;
+  overflow-y: auto;
+  font-family: var(--font-sans);
+  /* Design-system motion (Phase 4): autocomplete fades in fast — it
+     re-renders on every keystroke, so a fade reads cleaner than a pop. */
+  animation: cs-fade-in var(--motion-fast) var(--ease-out) both;
+}
+
+.formula-suggestions__item {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  gap: var(--space-4);
+  align-items: baseline;
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: var(--text-sm);
+  color: var(--color-text);
+  user-select: none;
+}
+
+.formula-suggestions__item:hover {
+  background: var(--color-hover);
+}
+
+.formula-suggestions__item--selected {
+  background: var(--color-selected);
+  color: var(--color-accent);
+}
+
+.formula-suggestions__name {
+  font-family: var(--font-mono);
+  font-weight: var(--weight-semibold);
+}
+
+.formula-suggestions__desc {
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+  line-height: 1.35;
+}
+
+/* Sheet-name suggestions get a small grid icon + soft tint so they're
+   visually distinct from function suggestions without forcing a
+   separate dropdown — Excel mixes the two in one list too. */
+.formula-suggestions__item--sheet {
+  background: color-mix(in srgb, var(--color-accent) 4%, transparent);
+}
+.formula-suggestions__item--sheet .formula-suggestions__desc {
+  color: var(--color-accent);
+  font-weight: var(--weight-medium);
+}
+
+/* Row containing the grid host + any of our React side panels (Tables
+   panel today; more later). Univer's own side panels still mount inside
+   .grid-host because they hook into Univer's render tree. */
+.grid-row {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  /* "Desk" for the floating body cards (Phase 4): canvas, side panel, and
+     rail all sit on this neutral strip with a uniform gap, so everything
+     reads as a rounded card on one surface — nothing is the odd one out.
+     The desk is mixed a touch darker than the chrome strip so the white
+     cards clearly lift off it (a near-white desk read as seams, not float). */
+  gap: var(--space-4);
+  /* Uniform gap on all four sides so the canvas card sits the same distance
+     from the formula bar above and the sheet-tabs/status below. */
+  padding: var(--space-4);
+  background: var(
+    --editor-desk,
+    color-mix(in srgb, var(--color-surface-strip), var(--color-text) 7%)
+  );
+}
+
+/* ── Right-edge panel rail ──────────────────────────────────────────
+   Vertical column of icon buttons that toggle React side panels.
+   Always visible — collapsed panels still leave the rail there, so
+   users can re-open without hunting through menus. The active panel
+   body opens to the LEFT of the rail (preceding it in flex order). */
+.panel-rail {
+  /* A clean floating icon column on the desk — no tacked-on strip bg or
+     borders. Buttons carry their own hover/active treatment (Phase 4). */
+  flex: 0 0 40px;
+  width: 40px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) 0;
+  background: transparent;
+}
+.panel-rail__btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 36px;
+  width: 36px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition:
+    background var(--motion-fast) var(--ease-out),
+    color var(--motion-fast) var(--ease-out);
+}
+.panel-rail__btn:hover {
+  background: var(--color-hover);
+  color: var(--color-text);
+}
+.panel-rail__btn--active {
+  /* DS IconButton pressed look — filled accent well + accent glyph. */
+  background: var(--color-selected);
+  color: var(--color-accent);
+}
+.panel-rail__btn:focus-visible {
+  outline: none;
+  box-shadow: var(--glow-accent);
+}
+
+/* Grid host — zone 0 (white). The grey sheet-tabs strip below provides
+   the next layer break. */
+.grid-host {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  background: var(--color-surface);
+  overflow: hidden;
+  z-index: 1;
+  /* Rounded floating canvas card — borderless, defined by the soft shadow
+     alone (matches the borderless toolbar; cleaner, more modern). */
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-2);
+}
+
+/* Our React-owned side panel (Tables for now). Sits to the right of the
+   grid, same tint as Univer's built-in sidebars so the surfaces feel
+   consistent. */
+.tables-panel {
+  /* Design-system panel motion (Phase 4, §04/§05): docked panels slide in
+     from the right edge over --motion-slow; exit is instant (no reverse). */
+  animation: cs-slide-in-right var(--motion-slow) var(--ease-out) both;
+  width: 320px;
+  flex: 0 0 320px;
+  background: var(--color-surface-alt);
+  border-top: 1px solid var(--color-divider);
+  border-left: 1px solid var(--color-divider);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* Live session-history side panel — same chrome as the other right-rail
+   panels so the visual rhythm is consistent. */
+.side-panel {
+  animation: cs-slide-in-right var(--motion-slow) var(--ease-out) both;
+  width: 320px;
+  flex: 0 0 320px;
+  background: var(--color-surface-alt);
+  border-top: 1px solid var(--color-divider);
+  border-left: 1px solid var(--color-divider);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.side-panel__header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-divider);
+  font-weight: var(--weight-semibold);
+  font-size: var(--text-sm);
+}
+.side-panel__header > .icon {
+  flex: 0 0 auto;
+  color: var(--color-text-secondary);
+}
+.side-panel__title {
+  margin: 0;
+  font-size: inherit;
+  font-weight: inherit;
+  flex: 1;
+  min-width: 0;
+}
+.side-panel__count {
+  font-weight: var(--weight-medium);
+  color: var(--color-text-secondary);
+  background: var(--color-surface-strip);
+  border-radius: var(--radius-pill);
+  padding: 1px var(--space-3);
+  font-size: var(--text-xs);
+}
+/* Shared panel-header close button (replaces per-panel __close). */
+.side-panel__close {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition:
+    background var(--motion-fast) var(--ease-out),
+    color var(--motion-fast) var(--ease-out);
+}
+.side-panel__close:hover {
+  background: var(--color-hover);
+  color: var(--color-text);
+}
+/* Shared structured empty state (icon + title + body + CTA) — used by
+   Comments + the unified panels. Plain-text empties (History) still work,
+   they just center. */
+.side-panel__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-8) var(--space-6);
+  text-align: center;
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+  line-height: var(--leading-normal);
+}
+.side-panel__empty-icon {
+  color: var(--color-text-disabled);
+}
+.side-panel__empty-title {
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+}
+.side-panel__empty-body {
+  margin: 0;
+}
+.side-panel__empty-cta {
+  width: 100%;
+  margin-top: var(--space-1);
+}
+
+/* Generic panel body + row list (Comments uses these; other panels keep
+   their bespoke bodies until the row-unification pass). */
+.side-panel__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+.side-panel__rows {
+  list-style: none;
+  margin: 0;
+  padding: var(--space-2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+/* Comments task pane rows */
+.comments-panel__row {
+  display: flex;
+  align-items: center;
+}
+.comments-panel__open {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: var(--space-3);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  color: var(--color-text);
+  transition: background var(--motion-fast) var(--ease-out);
+}
+.comments-panel__open:hover {
+  background: var(--color-hover);
+}
+/* Resolve / reopen toggle (Phase 3, T3.2). */
+.comments-panel__resolve {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  margin-right: var(--space-2);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition:
+    background var(--motion-fast) var(--ease-out),
+    color var(--motion-fast) var(--ease-out);
+}
+.comments-panel__resolve:hover {
+  background: var(--color-hover);
+  color: var(--color-success, #188038);
+}
+/* Resolved-comments section (Phase 3, T3.2 reopen). */
+.comments-panel__resolved {
+  border-top: 1px solid var(--color-border);
+  margin-top: var(--space-2);
+}
+.comments-panel__resolved-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 0;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.comments-panel__resolved-toggle:hover {
+  color: var(--color-text);
+}
+.comments-panel__row--resolved .comments-panel__text {
+  opacity: 0.7;
+}
+.comments-panel__row-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.comments-panel__ref {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  color: var(--color-accent);
+}
+.comments-panel__replies {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+}
+/* "Mentions you" — a comment (or one of its replies) @-references the local
+   user. A left accent bar + a chip make it scannable in a long thread. */
+.comments-panel__row--mentions-me {
+  box-shadow: inset 3px 0 0 var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 6%, transparent);
+}
+.comments-panel__mention-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+  padding: 1px 6px 1px 4px;
+  border-radius: 999px;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  color: #fff;
+  background: var(--color-accent);
+}
+.comments-panel__author {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 2px 0 1px;
+  min-width: 0;
+}
+.comments-panel__author-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  color: #fff;
+  font-size: 9px;
+  font-weight: var(--weight-semibold);
+  line-height: 1;
+  letter-spacing: 0.02em;
+}
+.comments-panel__author-name {
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.comments-panel__text {
+  font-size: var(--text-sm);
+  color: var(--color-text);
+  line-height: var(--leading-normal);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.history-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+.history-list__row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-rows: auto auto auto;
+  column-gap: 8px;
+  row-gap: 2px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--color-divider);
+  font-size: var(--text-xs);
+  line-height: 1.4;
+}
+.history-list__who {
+  grid-column: 1;
+  grid-row: 1;
+  font-weight: 600;
+}
+.history-list__when {
+  grid-column: 2;
+  grid-row: 1;
+  color: var(--color-text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.history-list__what {
+  grid-column: 1;
+  grid-row: 2;
+  color: var(--color-text);
+}
+.history-list__revert {
+  grid-column: 2;
+  grid-row: 2;
+  align-self: end;
+  justify-self: end;
+  padding: 2px 8px;
+  font-size: var(--text-xs);
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-surface);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  color: var(--color-text);
+}
+.history-list__revert:hover:not(:disabled) {
+  background: var(--color-hover);
+}
+.history-list__revert:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.tables-panel__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-divider);
+  font-weight: 600;
+  font-size: var(--text-sm);
+}
+
+.tables-panel__close {
+  background: transparent;
+  border: 0;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  padding: 2px;
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--radius-sm);
+}
+
+.tables-panel__close:hover {
+  background: var(--color-surface-strip);
+  color: var(--color-text);
+}
+
+.tables-panel__body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px;
+}
+
+.tables-panel__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+  line-height: 1.5;
+  padding: 24px 16px;
+  gap: 6px;
+}
+.tables-panel__empty-icon {
+  color: var(--color-text-disabled);
+  margin-bottom: 4px;
+}
+.tables-panel__empty-title {
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium, 500);
+}
+.tables-panel__empty-body {
+  margin: 0 0 8px;
+}
+.tables-panel__empty-cta {
+  width: 100%;
+  margin-top: 4px;
+}
+
+.tables-panel__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tables-panel__row {
+  background: var(--color-surface);
+  border: 1px solid var(--color-divider);
+  padding: 10px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-areas:
+    'name delete'
+    'range delete'
+    'themes themes';
+  row-gap: 6px;
+  column-gap: 8px;
+  align-items: center;
+}
+
+.tables-panel__name {
+  grid-area: name;
+  font-weight: 600;
+  font-size: var(--text-sm);
+  min-width: 0;
+}
+
+.tables-panel__name-btn {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tables-panel__name-input {
+  width: 100%;
+  font: inherit;
+  padding: 2px 4px;
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+}
+
+.tables-panel__range {
+  grid-area: range;
+  color: var(--color-text-secondary);
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: var(--text-xs);
+}
+
+.tables-panel__themes {
+  grid-area: themes;
+  display: flex;
+  gap: 4px;
+}
+
+.tables-panel__swatch {
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  padding: 0;
+}
+
+.tables-panel__swatch--active {
+  outline: 2px solid var(--color-text);
+  outline-offset: 1px;
+}
+
+.tables-panel__delete {
+  grid-area: delete;
+  background: transparent;
+  border: 0;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: var(--radius-sm);
+  align-self: start;
+}
+
+.tables-panel__delete:hover {
+  background: var(--color-danger-soft, #fde7e7);
+  color: var(--color-danger, #c4321a);
+}
+
+/* PivotTable Fields task pane — Excel's field list + four drop zones.
+   Builds on the shared `.side-panel` chrome. */
+.pivot-fields-panel__body {
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-3);
+  gap: var(--space-4);
+}
+.pivot-fields-panel__picker {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+}
+.pivot-fields-panel__picker > select {
+  flex: 1;
+  min-width: 0;
+}
+.pivot-fields-panel__section-title,
+.pivot-fields-panel__zone-title {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.pivot-fields-panel__field-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  max-height: 180px;
+  overflow-y: auto;
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-md);
+}
+.pivot-fields-panel__field {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--text-sm);
+  position: relative;
+}
+.pivot-fields-panel__field + .pivot-fields-panel__field {
+  border-top: 1px solid var(--color-divider);
+}
+.pivot-fields-panel__field-dot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 1px solid var(--color-border, #c4c4c4);
+  background: transparent;
+}
+.pivot-fields-panel__field-dot--on {
+  background: var(--color-accent, #107c41);
+  border-color: var(--color-accent, #107c41);
+}
+.pivot-fields-panel__field-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pivot-fields-panel__field-badge {
+  flex: 0 0 auto;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  color: var(--color-text-secondary);
+  background: var(--color-surface-strip);
+  border-radius: var(--radius-sm);
+  padding: 0 var(--space-2);
+}
+.pivot-fields-panel__field-add {
+  position: relative;
+  flex: 0 0 auto;
+}
+.pivot-fields-panel__add-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+.pivot-fields-panel__add-btn:hover {
+  background: var(--color-hover);
+  color: var(--color-text);
+}
+.pivot-fields-panel__add-menu {
+  position: absolute;
+  right: 0;
+  top: 100%;
+  z-index: 20;
+  margin-top: 2px;
+  min-width: 150px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md, 0 4px 14px rgba(0, 0, 0, 0.15));
+  padding: var(--space-1);
+  display: flex;
+  flex-direction: column;
+}
+.pivot-fields-panel__add-menu > button {
+  text-align: left;
+  border: 0;
+  background: transparent;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  cursor: pointer;
+  color: var(--color-text);
+}
+.pivot-fields-panel__add-menu > button:hover {
+  background: var(--color-hover);
+}
+.pivot-fields-panel__zones {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3);
+}
+.pivot-fields-panel__zone {
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-md);
+  padding: var(--space-2);
+  min-height: 64px;
+  background: var(--color-surface);
+  transition:
+    border-color var(--motion-fast) var(--ease-out),
+    background var(--motion-fast) var(--ease-out);
+}
+/* Drop-target highlight while a field/chip is dragged over the zone. */
+.pivot-fields-panel__zone--over {
+  border-color: var(--color-accent, #107c41);
+  border-style: dashed;
+  background: var(--color-accent-soft, rgba(16, 124, 65, 0.08));
+}
+/* Drag grip on field-list rows + chips. */
+.pivot-fields-panel__grip {
+  flex: 0 0 auto;
+  color: var(--color-text-disabled);
+  cursor: grab;
+}
+.pivot-fields-panel__field,
+.pivot-fields-panel__chip {
+  cursor: grab;
+}
+.pivot-fields-panel__zone-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.pivot-fields-panel__zone-empty {
+  font-size: var(--text-xs);
+  color: var(--color-text-disabled);
+  padding: var(--space-2);
+  border: 1px dashed var(--color-divider);
+  border-radius: var(--radius-sm);
+  text-align: center;
+}
+.pivot-fields-panel__chip {
+  background: var(--color-surface-alt);
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.pivot-fields-panel__chip-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+.pivot-fields-panel__chip-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+}
+.pivot-fields-panel__chip-actions {
+  flex: 0 0 auto;
+  display: inline-flex;
+  gap: 1px;
+}
+.pivot-fields-panel__chip-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+.pivot-fields-panel__chip-btn:hover {
+  background: var(--color-hover);
+  color: var(--color-text);
+}
+.pivot-fields-panel__chip-btn--remove:hover {
+  background: var(--color-danger-soft, #fde7e7);
+  color: var(--color-danger, #c4321a);
+}
+.pivot-fields-panel__chip-controls {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.pivot-fields-panel__chip-select {
+  width: 100%;
+  font-size: var(--text-xs);
+}
+.pivot-fields-panel__filter-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  border: 0;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+  cursor: pointer;
+  padding: 2px 0;
+}
+.pivot-fields-panel__filter-toggle:hover {
+  color: var(--color-text);
+}
+.pivot-fields-panel__filter-values {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 160px;
+  overflow-y: auto;
+  border-top: 1px solid var(--color-divider);
+  padding-top: var(--space-1);
+}
+.pivot-fields-panel__filter-bulk {
+  display: flex;
+  gap: var(--space-2);
+  padding-bottom: var(--space-1);
+}
+.pivot-fields-panel__filter-bulk > button {
+  border: 0;
+  background: transparent;
+  color: var(--color-accent, #107c41);
+  font-size: var(--text-xs);
+  cursor: pointer;
+  padding: 0;
+}
+.pivot-fields-panel__filter-bulk > button:hover {
+  text-decoration: underline;
+}
+.pivot-fields-panel__filter-value {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
+}
+.pivot-fields-panel__filter-value > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Watch Window — pinned cells' live value/formula. Shared `.side-panel` chrome. */
+.watch-panel__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-3);
+}
+.watch-panel__actions {
+  display: flex;
+  gap: var(--space-2);
+}
+.watch-panel__actions > button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+.watch-panel__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-xs);
+}
+.watch-panel__table th,
+.watch-panel__table td {
+  text-align: left;
+  padding: var(--space-1) var(--space-2);
+  border-bottom: 1px solid var(--color-divider);
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.watch-panel__table th {
+  color: var(--color-text-secondary);
+  font-weight: var(--weight-semibold);
+}
+.watch-panel__row {
+  cursor: pointer;
+}
+.watch-panel__row:hover td {
+  background: var(--color-hover);
+}
+.watch-panel__formula {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  color: var(--color-text-secondary);
+}
+.watch-panel__remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+.watch-panel__remove:hover {
+  background: var(--color-danger-soft, #fde7e7);
+  color: var(--color-danger, #c4321a);
+}
+
+/* Chart overlay — the ECharts container floats over the grid, anchored
+   to cells. Selection adds a subtle accent frame and 8 resize handles
+   (4 corners + 4 mid-edges) so the chart can be moved and resized like
+   any Excel chart object. */
+.chart-overlay {
+  background: var(--color-surface);
+  border: 1px solid var(--color-divider);
+  border-radius: 2px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  box-sizing: border-box;
+  user-select: none;
+  /* Layer is pointer-events: none so empty space passes clicks to the
+     grid below; the chart itself opts back in so it can be clicked,
+     dragged, and right-clicked. */
+  pointer-events: auto;
+}
+.chart-overlay--selected {
+  border-color: var(--color-accent);
+  box-shadow:
+    0 0 0 1px var(--color-accent),
+    0 2px 6px rgba(0, 0, 0, 0.08);
+  z-index: 1;
+}
+.chart-overlay--dragging {
+  opacity: 0.95;
+  cursor: grabbing;
+}
+.chart-overlay__handle {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  background: var(--color-surface);
+  border: 1.5px solid var(--color-accent);
+  border-radius: 2px;
+  box-sizing: border-box;
+  z-index: 2;
+}
+.chart-overlay__handle--n {
+  top: -6px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+.chart-overlay__handle--s {
+  bottom: -6px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+.chart-overlay__handle--w {
+  top: 50%;
+  left: -6px;
+  transform: translateY(-50%);
+}
+.chart-overlay__handle--e {
+  top: 50%;
+  right: -6px;
+  transform: translateY(-50%);
+}
+.chart-overlay__handle--nw {
+  top: -6px;
+  left: -6px;
+}
+.chart-overlay__handle--ne {
+  top: -6px;
+  right: -6px;
+}
+.chart-overlay__handle--sw {
+  bottom: -6px;
+  left: -6px;
+}
+.chart-overlay__handle--se {
+  bottom: -6px;
+  right: -6px;
+}
+
+/* Chart context menu — right-click on a chart. Same chrome as the
+   in-app menu bar dropdowns; positioned via fixed coords from the
+   right-click event. */
+.chart-context-menu {
+  min-width: 200px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  padding: 4px;
+  z-index: 1000;
+}
+.chart-context-menu__item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 6px 10px;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  color: var(--color-text);
+}
+.chart-context-menu__item:hover {
+  background: var(--color-hover);
+}
+.chart-context-menu__item--danger {
+  color: var(--color-danger, #c4321a);
+}
+.chart-context-menu__item--danger:hover {
+  background: var(--color-danger-soft, #fde7e7);
+}
+.chart-context-menu__sep {
+  height: 1px;
+  background: var(--color-divider);
+  margin: 4px 0;
+}
+.chart-context-menu--renaming {
+  padding: 6px;
+}
+.chart-context-menu__rename-input {
+  width: 100%;
+  font: inherit;
+  padding: 6px 8px;
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+}
+
+/* Charts panel — Selection-Pane equivalent for charts on the active sheet.
+   Same chrome as the Tables panel for visual coherence; only the row
+   layout differs (chart name + icon + meta + delete, no theme swatches). */
+.charts-panel {
+  animation: cs-slide-in-right var(--motion-slow) var(--ease-out) both;
+  width: 320px;
+  flex: 0 0 320px;
+  background: var(--color-surface-alt);
+  border-top: 1px solid var(--color-divider);
+  border-left: 1px solid var(--color-divider);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.charts-panel__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-divider);
+  font-weight: 600;
+  font-size: var(--text-sm);
+}
+.charts-panel__close {
+  background: transparent;
+  border: 0;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  padding: 2px;
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--radius-sm);
+}
+.charts-panel__close:hover {
+  background: var(--color-surface-strip);
+  color: var(--color-text);
+}
+.charts-panel__body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px;
+}
+.charts-panel__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+  line-height: 1.5;
+  padding: 24px 16px;
+  gap: 6px;
+}
+.charts-panel__empty-icon {
+  color: var(--color-text-disabled);
+  margin-bottom: 4px;
+}
+.charts-panel__empty-title {
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium, 500);
+}
+.charts-panel__empty-body {
+  margin: 0 0 8px;
+}
+.charts-panel__empty-cta {
+  width: 100%;
+  margin-top: 4px;
+}
+.charts-panel__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.charts-panel__row {
+  background: var(--color-surface);
+  border: 1px solid var(--color-divider);
+  padding: 10px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-areas:
+    'name delete'
+    'meta delete';
+  row-gap: 6px;
+  column-gap: 8px;
+  align-items: center;
+}
+.charts-panel__name {
+  grid-area: name;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  font-size: var(--text-sm);
+  min-width: 0;
+}
+.charts-panel__type-icon {
+  font-size: 18px;
+  color: var(--color-text-secondary);
+}
+.charts-panel__name-btn {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.charts-panel__name-input {
+  flex: 1;
+  font: inherit;
+  padding: 2px 4px;
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+}
+.charts-panel__meta {
+  grid-area: meta;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+}
+.charts-panel__type-label {
+  color: var(--color-text);
+}
+.charts-panel__range {
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.charts-panel__delete {
+  grid-area: delete;
+  background: transparent;
+  border: 0;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: var(--radius-sm);
+  align-self: start;
+}
+.charts-panel__delete:hover {
+  background: var(--color-danger-soft, #fde7e7);
+  color: var(--color-danger, #c4321a);
+}
+.charts-panel__add-row {
+  list-style: none;
+}
+.charts-panel__add {
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+/* Univer side panels — Comments, Data Validation, Conditional Formatting,
+   etc. all mount into Univer's right-sidebar slot. Give them a slightly
+   different tint so they read as a separate surface from the white grid. */
+.grid-host [data-u-comp='sidebar'] {
+  background: var(--color-surface-alt) !important;
+  border-left: 1px solid var(--color-divider) !important;
+}
+
+.grid-host [data-u-comp='sidebar'] section {
+  background: transparent !important;
+}
+
+.grid-host [data-u-comp='sidebar'] header {
+  background: var(--color-surface) !important;
+  border-bottom: 1px solid var(--color-divider) !important;
+}
+
+.grid-host > div {
+  position: absolute;
+  inset: 0;
+}
+
+/* Skeleton shown until Univer first paints */
+.grid-skeleton {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background:
+    linear-gradient(var(--color-divider) 1px, transparent 1px) 0 0 / 100px 24px,
+    linear-gradient(90deg, var(--color-divider) 1px, transparent 1px) 0 0 / 100px 24px,
+    var(--color-surface);
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  z-index: 1;
+  animation: skeleton-fade var(--motion-base) var(--ease-out);
+  pointer-events: none;
+}
+
+.grid-skeleton__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-5);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-1);
+}
+
+.grid-skeleton__spinner {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid var(--color-divider);
+  border-top-color: var(--color-accent);
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes skeleton-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Sheet tabs — zone 1 (grey). The bg shift separates it from the
+   white grid above and matches the status bar below. */
+.sheet-tabs {
+  display: flex;
+  align-items: stretch;
+  height: var(--sheet-tabs-h);
+  padding: 0 var(--space-3);
+  background: var(--color-surface-strip);
+  /* Hairline separates the footer strip from the desk/canvas above. */
+  border-top: 1px solid var(--color-divider);
+  font-size: var(--text-sm);
+  z-index: 2;
+}
+
+.sheet-tabs__list {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  flex: 1;
+  min-width: 0;
+}
+
+.sheet-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-3) 0 var(--space-5);
+  height: 100%;
+  cursor: pointer;
+  color: var(--color-text-secondary);
+  background: transparent;
+  border-right: 1px solid var(--color-divider);
+  transition:
+    background var(--motion-fast) var(--ease-out),
+    color var(--motion-fast) var(--ease-out);
+  white-space: nowrap;
+  user-select: none;
+  font-weight: var(--weight-medium);
+  letter-spacing: 0.01em;
+  position: relative;
+}
+
+.sheet-tab:hover {
+  background: var(--color-hover);
+  color: var(--color-text);
+}
+
+/* Signature active sheet tab — a rounded-top "card" with an accent bar across
+   the TOP (reads as the live sheet hanging from its grid), not the generic
+   bottom underline. Ownable + matches the floating-card language. */
+.sheet-tab--active {
+  background: var(--color-surface);
+  color: var(--color-accent);
+  font-weight: var(--weight-semibold);
+  border-right-color: transparent;
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+  box-shadow:
+    inset 0 2px 0 var(--color-accent),
+    var(--shadow-1);
+}
+
+.sheet-tab--dragging {
+  opacity: 0.4;
+}
+
+/* Drop target during sheet-tab drag-reorder. The previous 2 px inset
+   line on the left edge was almost invisible (the tab strip's own
+   borders washed it out). Combine a thick left rail + a faint accent
+   tint so the user can clearly see where the dragged tab will land. */
+.sheet-tab--drop-target {
+  box-shadow: inset 3px 0 0 var(--color-accent);
+  background: var(--color-accent-soft);
+}
+
+/* "Hidden sheets" button on the sheet-tabs strip, only shown when at
+   least one sheet is hidden. Mirrors Excel's right-click → Unhide
+   affordance but inline so keyboard users don't need to discover it
+   via a context menu. */
+.sheet-tabs__hidden {
+  position: relative;
+  margin-left: 2px;
+}
+.sheet-tabs__hidden-badge {
+  position: absolute;
+  top: 2px;
+  right: 0;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: var(--radius-pill);
+  background: var(--color-accent);
+  color: var(--color-accent-fg);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 14px;
+  text-align: center;
+}
+.sheet-tabs__hidden-menu {
+  position: absolute;
+  bottom: calc(var(--sheet-tabs-h) + 4px);
+  left: 36px;
+  min-width: 180px;
+  z-index: 30;
+}
+.menu__label {
+  padding: 6px 12px 4px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-secondary);
+}
+
+/* Hover-revealed × on each tab */
+.sheet-tab__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-text-secondary);
+  border-radius: 50%;
+  opacity: 0;
+  cursor: pointer;
+  transition:
+    opacity var(--motion-fast) var(--ease-out),
+    background var(--motion-fast) var(--ease-out);
+}
+
+.sheet-tab__close .icon {
+  font-size: 12px;
+}
+
+.sheet-tab:hover .sheet-tab__close,
+.sheet-tab--active .sheet-tab__close {
+  opacity: 1;
+}
+
+.sheet-tab__close:hover:not(:disabled) {
+  background: var(--color-pressed);
+  color: var(--color-text);
+}
+
+.sheet-tab__close:disabled {
+  opacity: 0;
+  cursor: not-allowed;
+}
+
+.sheet-tab__input {
+  height: 22px;
+  padding: 0 var(--space-2);
+  font: inherit;
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-md);
+  outline: none;
+  min-width: 80px;
+  /* DS input focus signature: soft 3px accent-soft glow (Phase 4). */
+  box-shadow: var(--glow-accent);
+}
+
+.sheet-tabs__add {
+  flex-shrink: 0;
+  align-self: center;
+  margin-right: var(--space-3);
+  width: 22px;
+  height: 22px;
+  min-width: 22px;
+}
+
+.sheet-tabs__stats {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-5);
+  margin: 0 var(--space-5);
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+  cursor: context-menu;
+}
+
+/* Excel-style right-click customise popover for the status-bar
+   stats. Anchored above the strip; click outside to dismiss. */
+.statbar-customise {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-3);
+  padding: 6px 4px;
+  min-width: 200px;
+  z-index: 30;
+  font-size: 12px;
+  /* Design-system motion (Phase 4): opens upward, so pop from the bottom. */
+  transform-origin: bottom;
+  animation: cs-pop-in var(--motion-base) var(--ease-spring) both;
+}
+.statbar-customise__heading {
+  padding: 4px 10px 8px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-secondary);
+  font-weight: var(--weight-medium, 500);
+}
+.statbar-customise__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+}
+.statbar-customise__item:hover {
+  background: var(--color-hover);
+}
+.statbar-customise__item input[type='checkbox'] {
+  accent-color: var(--color-accent);
+}
+
+.sheet-tabs__right {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
+  margin-left: auto;
+  padding-left: var(--space-3);
+}
+
+.sheet-tabs__action {
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
+}
+
+.sheet-tabs__sep {
+  display: inline-block;
+  width: 1px;
+  height: 16px;
+  background: var(--color-divider);
+  margin: 0 var(--space-2);
+}
+
+.sheet-tabs__zoom-slider {
+  width: 100px;
+  height: 18px;
+  cursor: pointer;
+  accent-color: var(--color-accent);
+}
+
+.sheet-tabs__zoom-label {
+  min-width: 44px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+  background: transparent;
+  border: 0;
+  padding: 0 var(--space-2);
+  cursor: pointer;
+  border-radius: var(--radius-md);
+}
+
+.sheet-tabs__zoom-label:hover {
+  background: var(--color-hover);
+  color: var(--color-text);
+}
+
+/* Status bar — dedicated strip below the sheet tabs (StatusBar.tsx). Stats on
+   the left, collab + undo/redo + zoom pinned right; hairline top separator. */
+.statusbar {
+  grid-area: statusbar;
+  display: flex;
+  align-items: center;
+  height: var(--statusbar-h);
+  padding: 0 var(--space-4);
+  background: var(--color-surface-strip);
+  border-top: 1px solid var(--color-divider);
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+  user-select: none;
+  z-index: 2;
+}
+.statusbar__ready {
+  flex: 1;
+}
+.statusbar__stats {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-7);
+  flex: 1;
+  font-variant-numeric: tabular-nums;
+  cursor: context-menu;
+}
+.statusbar__right {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.statusbar__action {
+  width: 22px;
+  height: 22px;
+  min-width: 22px;
+}
+.statusbar__sep {
+  display: inline-block;
+  width: 1px;
+  height: 14px;
+  background: var(--color-divider);
+  margin: 0 var(--space-2);
+}
+.statusbar__zoom-slider {
+  width: 96px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: var(--color-accent);
+}
+.statusbar__zoom-label {
+  min-width: 40px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+  background: transparent;
+  border: 0;
+  padding: 0 var(--space-2);
+  cursor: pointer;
+  border-radius: var(--radius-md);
+}
+.statusbar__zoom-label:hover {
+  background: var(--color-hover);
+  color: var(--color-text);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Dropdown menu (File menu, future Insert menu)
+   ───────────────────────────────────────────────────────────────────────── */
+.menu {
+  position: fixed; /* escape all containing blocks */
+  /* Wider than the original 220 px so shortcut labels (e.g. "Ctrl+Shift+:")
+     have breathing room and item labels don't truncate. 320 px matches the
+     real estate Office desktop reserves for File/Edit menus. */
+  min-width: 320px;
+  max-width: 360px;
+  /* No max-height + no overflow clip — submenus fly out via `left: 100%`
+     and a clip on the parent would hide them. Long menus run their natural
+     length; if anything overflows the viewport we'll add bottom-anchor
+     positioning logic instead of scroll.) */
+  /* Raised surface so floating menus read as a distinct layer above the
+     chrome (matches the DS Menu; clearest in dark where raised > surface). */
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-3);
+  padding: var(--space-2) 0;
+  /* Above formula-suggestions (1100) and any toolbar / formula-bar stacking
+     context. Without this, the Borders popover renders behind the formula
+     input — Playwright catches it because pointer hit-tests pick the input. */
+  z-index: 2000;
+  /* Design-system motion (Phase 4): menus pop in from the top with a gentle
+     spring. Keyframe lives in @schnsrw/design-system motion.css (loaded via
+     tokens.css). Reduced-motion guard at the foot of this file. */
+  transform-origin: top;
+  animation: cs-pop-in var(--motion-base) var(--ease-spring) both;
+}
+
+.menu__item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  width: 100%;
+  /* Slightly taller (was 30 px) so the icon, label, and right-anchored
+     shortcut have visual breathing room. Matches Office's denser menus. */
+  height: 32px;
+  padding: 0 var(--space-5);
+  font-size: var(--text-sm);
+  color: var(--color-text);
+  background: transparent;
+  border: 0;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--motion-fast) var(--ease-out);
+}
+
+.menu__item:hover:not(:disabled) {
+  background: var(--color-hover);
+}
+
+.menu__item:disabled {
+  color: var(--color-text-disabled);
+  cursor: not-allowed;
+}
+
+.menu__item-icon {
+  color: var(--color-text-secondary);
+  flex-shrink: 0;
+}
+
+.menu__item-shortcut {
+  margin-left: auto;
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.menu__divider {
+  height: 1px;
+  margin: var(--space-2) 0;
+  background: var(--color-divider);
+}
+
+/* Color-picker row in dropdowns (Borders dropdown uses this). */
+.menu__color-row {
+  padding: 6px 10px 8px;
+}
+
+.menu__color-label {
+  font-size: 11px;
+  font-weight: var(--weight-semibold, 600);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-soft, var(--color-text-secondary, var(--color-text)));
+  margin-bottom: 6px;
+}
+
+.menu__color-swatches {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 4px;
+}
+
+.menu__color-swatch {
+  position: relative;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-sm);
+  border: 1px solid color-mix(in srgb, var(--color-border-strong) 60%, transparent);
+  cursor: pointer;
+  padding: 0;
+  transition:
+    transform var(--motion-fast) var(--ease-out),
+    box-shadow var(--motion-fast) var(--ease-out);
+}
+
+.menu__color-swatch:hover {
+  transform: scale(1.08);
+}
+
+.menu__color-swatch--active {
+  box-shadow:
+    0 0 0 2px var(--color-accent),
+    0 0 0 3px var(--color-surface);
+}
+
+/* Custom color = a label-wrapped <input type="color"> with an icon overlay. */
+.menu__color-swatch--custom {
+  background: linear-gradient(
+    135deg,
+    #ff0066 0%,
+    #ff9900 25%,
+    #ffee00 50%,
+    #00ff66 75%,
+    #0066ff 100%
+  );
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+
+.menu__color-swatch--custom input[type='color'] {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+  border: 0;
+  padding: 0;
+}
+
+/* Border-weight swatches — wider than the colour swatches so the line
+   inside (which IS the visual representation of the thickness) has
+   room to render at 1/2/3 px. Active state mirrors the colour-swatch
+   pattern so the popup looks consistent. */
+.menu__weight-swatch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 22px;
+  border-radius: var(--radius-sm);
+  border: 1px solid color-mix(in srgb, var(--color-border-strong) 60%, transparent);
+  background: var(--color-surface);
+  cursor: pointer;
+  padding: 0 6px;
+  transition:
+    transform var(--motion-fast) var(--ease-out),
+    box-shadow var(--motion-fast) var(--ease-out);
+}
+
+.menu__weight-swatch:hover {
+  transform: scale(1.04);
+}
+
+.menu__weight-swatch--active {
+  box-shadow:
+    0 0 0 2px var(--color-accent),
+    0 0 0 3px var(--color-surface);
+}
+
+.menu__weight-swatch-line {
+  display: block;
+  width: 100%;
+  border-radius: 1px;
+}
+
+/* Submenu — a nested .menu opened from a parent item. The wrapper anchors
+   the popup; the popup floats to the right of the parent menu. */
+.menu__submenu {
+  position: relative;
+}
+
+.menu__item--has-submenu {
+  /* Reserve space on the right for the chevron. */
+  padding-right: var(--space-3);
+}
+
+.menu__item-chevron {
+  margin-left: auto;
+  color: var(--color-text-secondary);
+}
+
+.menu--sub {
+  position: absolute;
+  top: 0;
+  left: 100%;
+  margin-left: 2px;
+  z-index: 51;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Loading overlay — shown while a multi-MB workbook is being opened.
+   Render-blocking modal with a phase label + indeterminate stripe.
+   ───────────────────────────────────────────────────────────────────────── */
+.loading-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.32);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 6000;
+  animation: backdrop-in 120ms var(--ease-out, ease-out);
+}
+
+.loading-overlay__card {
+  width: min(420px, 92vw);
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-3);
+  padding: 24px 28px;
+  display: grid;
+  gap: 8px;
+  text-align: center;
+}
+
+.loading-overlay__icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--color-accent-soft, var(--color-surface-alt));
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 4px;
+}
+
+.loading-overlay__icon-inner {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--color-accent) 30%, transparent);
+  border-top-color: var(--color-accent);
+  animation: loading-spin 0.9s linear infinite;
+}
+
+@keyframes loading-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.loading-overlay__title {
+  font-size: 15px;
+  font-weight: var(--weight-semibold, 600);
+  color: var(--color-text);
+  margin: 0;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.loading-overlay__title strong {
+  font-weight: var(--weight-semibold, 600);
+}
+
+.loading-overlay__size {
+  color: var(--color-text-soft, var(--color-text));
+  font-weight: var(--weight-regular, 400);
+}
+
+/* "Step 2 of 3" pip-style indicator above the phase text. Reassures
+   the user that progress is forward when ExcelJS gives no other
+   signal during a multi-second parse. */
+.loading-overlay__step {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-secondary);
+  margin: 0 0 2px;
+}
+
+.loading-overlay__phase {
+  font-size: 13px;
+  color: var(--color-text-soft, var(--color-text));
+  margin: 2px 0 8px;
+}
+
+.loading-overlay__bar {
+  position: relative;
+  height: 4px;
+  width: 100%;
+  background: var(--color-surface-alt);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.loading-overlay__bar-fill {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent 0%, var(--color-accent) 50%, transparent 100%);
+  width: 40%;
+  border-radius: 999px;
+  animation: loading-sweep 1.4s ease-in-out infinite;
+}
+
+@keyframes loading-sweep {
+  0% {
+    left: -40%;
+  }
+  100% {
+    left: 100%;
+  }
+}
+
+.loading-overlay__elapsed {
+  font-size: 12px;
+  color: var(--color-text-soft, var(--color-text));
+  margin-top: 8px;
+  font-variant-numeric: tabular-nums;
+}
+
+.loading-overlay__hint {
+  font-size: 12px;
+  color: var(--color-text-soft, var(--color-text));
+  margin-top: 2px;
+  opacity: 0.8;
+}
+
+.loading-overlay__card--error {
+  border-top: 3px solid var(--color-danger);
+}
+
+.loading-overlay__icon--error {
+  background: color-mix(in srgb, var(--color-danger) 14%, transparent);
+  color: var(--color-danger);
+}
+.loading-overlay__icon--error .material-symbols-outlined {
+  font-size: 22px;
+}
+
+.loading-overlay__error-text {
+  text-align: left;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--color-text);
+  background: var(--color-surface-alt);
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  margin: 8px 0 0;
+  max-height: 200px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Modal dialog (Properties dialog and future modals)
+   ───────────────────────────────────────────────────────────────────────── */
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  /* Design-system scrim (Phase 4, §02/§05): tokenised colour (auto-deepens in
+     dark) + fast scrim-in, so the dialog rise reads against a settled backdrop. */
+  background: var(--color-scrim);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  /* Soft blur behind the scrim so the dialog reads as a focused, floating
+     layer (design-system Dialog feel). */
+  backdrop-filter: blur(3px) saturate(1.1);
+  -webkit-backdrop-filter: blur(3px) saturate(1.1);
+  animation: cs-scrim-in var(--motion-fast) var(--ease-out) both;
+}
+
+@keyframes backdrop-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.dialog {
+  /* Sized to fit our widest content (insert-function at 620px,
+     command-search results) without forcing a horizontal scroll on
+     `.dialog__body`. Use `--narrow` for confirm/password dialogs
+     that don't need this much room. */
+  width: min(640px, 92vw);
+  max-height: 86vh;
+  /* Design-system Dialog look (Phase 4): raised surface, the largest radius
+     in the ladder (--radius-xl 14px), deepest shadow (--shadow-4) so it
+     floats well clear of the blurred scrim. */
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-4);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  /* Dialogs rise + scale in on a spring. */
+  animation: cs-rise-in var(--motion-slow) var(--ease-spring) both;
+}
+
+.dialog--narrow {
+  width: min(420px, 92vw);
+}
+
+.dialog__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-5) var(--space-6);
+  border-bottom: 1px solid var(--color-divider);
+}
+
+.dialog__title {
+  /* DS dialog header runs at --text-lg (16px) semibold. */
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+  margin: 0;
+}
+
+.dialog__body {
+  padding: var(--space-5) var(--space-6);
+  /* Vertical-only — `overflow: auto` enables BOTH axes which exposes
+     a horizontal scrollbar the moment any child renders wider than
+     the dialog (e.g. a long Tell Me result row). Children should
+     truncate their own overflow, not force the body to scroll
+     sideways. */
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.dialog__footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-6);
+  border-top: 1px solid var(--color-divider);
+  background: var(--color-surface-alt);
+}
+
+/* Page Setup dialog */
+.page-setup {
+  display: grid;
+  gap: 18px;
+}
+
+.page-setup__group {
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+
+.page-setup__legend {
+  font-size: 12px;
+  font-weight: var(--weight-semibold, 600);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-soft, var(--color-text));
+  margin-bottom: 8px;
+  padding: 0;
+}
+
+.page-setup__segment {
+  display: inline-flex;
+  gap: 8px;
+}
+
+.page-setup__option {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: var(--weight-medium, 500);
+  background: var(--color-surface);
+  transition:
+    border-color var(--motion-fast) var(--ease-out),
+    background var(--motion-fast) var(--ease-out);
+}
+
+.page-setup__option:hover {
+  background: var(--color-hover);
+}
+
+.page-setup__option--active {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+  background: var(--color-accent-soft, transparent);
+}
+
+.page-setup__option input[type='radio'] {
+  /* Visually hide; the option label conveys state via aria-checked / styling. */
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  border: 0;
+}
+
+.page-setup__select {
+  width: 100%;
+  height: 32px;
+  padding: 0 12px;
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+}
+
+/* Insert PivotTable dialog — Excel-style "Create PivotTable + Fields"
+   compressed to a single screen. */
+.insert-pivot {
+  display: grid;
+  gap: 18px;
+}
+.insert-pivot__group {
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+.insert-pivot__legend {
+  font-size: 12px;
+  font-weight: var(--weight-semibold, 600);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-soft, var(--color-text));
+  margin-bottom: 8px;
+  padding: 0;
+}
+.insert-pivot__range {
+  width: 100%;
+  height: 32px;
+  padding: 0 12px;
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+}
+.insert-pivot__range:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+/* P1 — filter-field value checklist. Capped height with scroll so a
+   high-cardinality filter column (hundreds of distinct values) doesn't
+   blow up the dialog. */
+.insert-pivot__filter-values {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 8px;
+  max-height: 160px;
+  overflow-y: auto;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  padding: 6px 8px;
+  background: var(--color-surface);
+}
+.insert-pivot__filter-value {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  color: var(--color-text);
+  cursor: pointer;
+}
+.insert-pivot__filter-value:hover {
+  background: var(--color-hover);
+}
+.insert-pivot__filter-value input[type='checkbox'] {
+  accent-color: var(--color-accent);
+}
+
+.insert-pivot__hint {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+}
+.insert-pivot__error {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--color-danger, #c4321a);
+}
+.insert-pivot__fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 10px;
+}
+.insert-pivot__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.insert-pivot__field-label {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+.insert-pivot__select {
+  width: 100%;
+  height: 32px;
+  padding: 0 8px;
+  font-size: 13px;
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+}
+
+/* Insert Chart dialog — Excel's "Insert Chart" two-panel layout:
+     - Left column: chart family list (Column / Bar / Line / Area /
+       Pie / Scatter) with icon + name.
+     - Right top: subtype thumbnails for the selected family (SVG
+       previews + label).
+     - Right bottom: source-range input.
+   Visual chrome stays in line with Page Setup so dialogs feel coherent. */
+.insert-chart {
+  display: grid;
+  gap: 18px;
+}
+.insert-chart__group {
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+.insert-chart__legend {
+  font-size: 12px;
+  font-weight: var(--weight-semibold, 600);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-soft, var(--color-text));
+  margin-bottom: 8px;
+  padding: 0;
+}
+.insert-chart__catalog {
+  display: grid;
+  grid-template-columns: 150px 1fr;
+  gap: 14px;
+  min-height: 220px;
+}
+.insert-chart__families {
+  list-style: none;
+  margin: 0;
+  padding: 6px;
+  background: var(--color-surface-alt);
+  border-radius: var(--radius-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.insert-chart__family {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  background: transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: var(--weight-medium, 500);
+  text-align: left;
+  color: var(--color-text);
+}
+.insert-chart__family .material-symbols-outlined {
+  font-size: 18px;
+  color: var(--color-text-secondary);
+}
+.insert-chart__family:hover {
+  background: var(--color-hover);
+}
+.insert-chart__family--active {
+  background: var(--color-accent-soft, var(--color-hover));
+  color: var(--color-accent);
+}
+.insert-chart__family--active .material-symbols-outlined {
+  color: var(--color-accent);
+}
+.insert-chart__subtypes {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  align-content: start;
+  overflow-y: auto;
+  padding: 2px;
+}
+.insert-chart__subtype {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 6px 8px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  cursor: pointer;
+  font-size: 11.5px;
+  font-weight: var(--weight-medium, 500);
+  text-align: center;
+  color: var(--color-text);
+  transition:
+    border-color var(--motion-fast) var(--ease-out),
+    background var(--motion-fast) var(--ease-out),
+    transform 0.06s ease;
+}
+.insert-chart__subtype:hover {
+  background: var(--color-hover);
+  transform: translateY(-1px);
+}
+.insert-chart__subtype--active {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+  background: var(--color-accent-soft, transparent);
+}
+.insert-chart__subtype input[type='radio'] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  border: 0;
+}
+.insert-chart__thumb {
+  color: var(--color-text-secondary);
+}
+.insert-chart__subtype--active .insert-chart__thumb {
+  color: var(--color-accent);
+}
+.insert-chart__subtype-label {
+  line-height: 1.2;
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+}
+
+/* Format Chart dialog — Excel's "Format Chart Area" pane, compressed
+   into a single tabbed-style dialog. Reuses the same compact field
+   chrome as the Insert dialog for visual coherence. */
+.format-chart {
+  display: grid;
+  gap: 18px;
+}
+.format-chart__group {
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+.format-chart__legend {
+  font-size: 12px;
+  font-weight: var(--weight-semibold, 600);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-soft, var(--color-text));
+  margin-bottom: 8px;
+  padding: 0;
+}
+.format-chart__row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 8px;
+}
+.format-chart__checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.format-chart__checkbox input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--color-accent);
+}
+.format-chart__input {
+  width: 100%;
+  height: 32px;
+  padding: 0 12px;
+  font-size: 13px;
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+}
+.format-chart__input:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+.format-chart__input:disabled {
+  background: var(--color-surface-alt);
+  color: var(--color-text-disabled);
+  cursor: not-allowed;
+}
+.format-chart__segment {
+  display: inline-flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.format-chart__seg-opt {
+  display: inline-flex;
+  align-items: center;
+  padding: 7px 14px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: var(--weight-medium, 500);
+  background: var(--color-surface);
+  transition:
+    border-color var(--motion-fast) var(--ease-out),
+    background var(--motion-fast) var(--ease-out);
+}
+.format-chart__seg-opt:hover {
+  background: var(--color-hover);
+}
+.format-chart__seg-opt--active {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+  background: var(--color-accent-soft, transparent);
+}
+.format-chart__seg-opt input[type='radio'] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  border: 0;
+}
+.format-chart__axis-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.format-chart__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.format-chart__field-label {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+.format-chart__palettes {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+.format-chart__palette {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  background: var(--color-surface);
+  transition:
+    border-color var(--motion-fast) var(--ease-out),
+    background var(--motion-fast) var(--ease-out);
+}
+.format-chart__palette:hover {
+  background: var(--color-hover);
+}
+.format-chart__palette--active {
+  border-color: var(--color-accent);
+  background: var(--color-accent-soft, transparent);
+}
+.format-chart__palette input[type='radio'] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  border: 0;
+}
+.format-chart__palette-swatches {
+  display: flex;
+  gap: 2px;
+}
+.format-chart__palette-swatch {
+  width: 18px;
+  height: 18px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+}
+.format-chart__palette-label {
+  font-size: 12px;
+  font-weight: var(--weight-medium, 500);
+}
+
+/* Per-series colour-override list inside the Format Chart dialog. */
+.format-chart__series-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.format-chart__series-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 6px;
+  border-radius: var(--radius-sm);
+}
+.format-chart__series-row:hover {
+  background: var(--color-hover);
+}
+.format-chart__series-name {
+  flex: 1;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.format-chart__series-color {
+  width: 28px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  background: transparent;
+}
+.format-chart__series-reset {
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 11px;
+  color: var(--color-accent);
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+}
+.format-chart__series-reset:hover {
+  background: var(--color-pressed);
+}
+.format-chart__hint {
+  margin: 0 0 6px;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+.format-chart__series-kind {
+  height: 26px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  padding: 0 6px;
+  cursor: pointer;
+}
+.format-chart__series-kind:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+.format-chart__series-secondary {
+  font-size: 12px;
+  white-space: nowrap;
+}
+.insert-chart__range {
+  width: 100%;
+  height: 32px;
+  padding: 0 12px;
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+}
+.insert-chart__range:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+/* Insert Chart — error banner. Sits ABOVE the source-range input
+   (not below) with a visible icon, danger-tinted background, and a
+   left border that draws the eye on appearance. Replaces the
+   earlier "small red text below the input" that users missed and
+   silently retried (audit finding 1.2). */
+.insert-chart__error {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--color-danger, #c4321a);
+  background: color-mix(in srgb, var(--color-danger, #c4321a) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-danger, #c4321a) 30%, transparent);
+  border-left-width: 3px;
+  border-radius: 6px;
+}
+.insert-chart__error-icon {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--color-danger, #c4321a);
+  color: #fff;
+  font-weight: 700;
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+/* Mirror the error tint onto the input border so the field the
+   user needs to correct is unmistakable. */
+.insert-chart__range--error {
+  border-color: var(--color-danger, #c4321a);
+}
+.insert-chart__range--error:focus {
+  border-color: var(--color-danger, #c4321a);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-danger, #c4321a) 20%, transparent);
+}
+.insert-chart__hint {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+}
+
+/* Insert / Delete Cells dialog — Excel's Ctrl++ / Ctrl+- modal: a
+   stacked radio group with four directions. Reuses the same compact
+   field chrome as the other dialogs. */
+.cells-op {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.cells-op__option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: var(--weight-medium, 500);
+  transition:
+    border-color var(--motion-fast) var(--ease-out),
+    background var(--motion-fast) var(--ease-out);
+}
+.cells-op__option:hover {
+  background: var(--color-hover);
+}
+.cells-op__option--active {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+  background: var(--color-accent-soft, transparent);
+}
+.cells-op__option input[type='radio'] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--color-accent);
+}
+.cells-op__label {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.cells-op__label-main {
+  font-size: 13px;
+  font-weight: var(--weight-medium, 500);
+}
+.cells-op__label-hint {
+  font-size: 11px;
+  font-weight: var(--weight-regular, 400);
+  color: var(--color-text-muted);
+}
+.cells-op__option--active .cells-op__label-hint {
+  color: var(--color-accent);
+  opacity: 0.8;
+}
+
+/* ── Name Manager dialog ────────────────────────────────────────── */
+.name-manager__form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.name-manager__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+.name-manager__field input {
+  font: inherit;
+  font-size: 13px;
+  color: var(--color-text);
+  padding: 6px 10px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+}
+.name-manager__field input:focus {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -1px;
+  border-color: var(--color-accent);
+}
+.name-manager__error {
+  color: #b91c1c;
+  font-size: 12px;
+  padding: 6px 10px;
+  background: #fef2f2;
+  border-radius: var(--radius-sm);
+}
+.name-manager__empty {
+  padding: 16px 12px;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.name-manager__empty code {
+  background: var(--color-surface-alt);
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+}
+.name-manager__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.name-manager__table th {
+  text-align: left;
+  font-weight: var(--weight-medium, 500);
+  font-size: 11px;
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--color-divider);
+}
+.name-manager__table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--color-divider);
+  vertical-align: middle;
+}
+.name-manager__table tr:last-child td {
+  border-bottom: 0;
+}
+.name-manager__name {
+  font-weight: var(--weight-medium, 500);
+}
+.name-manager__ref code {
+  font-size: 12px;
+  font-family: var(--font-mono, monospace);
+  color: var(--color-text-secondary);
+}
+.name-manager__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+  white-space: nowrap;
+}
+.name-manager__action {
+  border: 0;
+  background: transparent;
+  padding: 4px;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+.name-manager__action:hover {
+  background: var(--color-pressed);
+  color: var(--color-text);
+}
+.name-manager__action--danger:hover {
+  color: #b91c1c;
+}
+
+/* ── Goal Seek dialog ──────────────────────────────────────────── */
+.goal-seek {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.goal-seek__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+.goal-seek__field input {
+  font: inherit;
+  font-size: 13px;
+  color: var(--color-text);
+  padding: 6px 10px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+}
+.goal-seek__field input:focus {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -1px;
+  border-color: var(--color-accent);
+}
+.goal-seek__error {
+  color: #b91c1c;
+  font-size: 12px;
+  padding: 6px 10px;
+  background: #fef2f2;
+  border-radius: var(--radius-sm);
+}
+.goal-seek__result {
+  font-size: 13px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  line-height: 1.5;
+}
+.goal-seek__result--ok {
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+}
+.goal-seek__result--fail {
+  background: #fef3c7;
+  color: #92400e;
+}
+.goal-seek__result code {
+  background: rgba(0, 0, 0, 0.05);
+  padding: 1px 4px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+}
+
+/* Manage Macros dialog — list of saved macros with Run / Delete per row. */
+.macros-dialog__empty {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+  padding: 4px 0;
+}
+.macros-dialog__list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.macros-dialog__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+}
+.macros-dialog__name {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+  color: var(--color-text);
+  min-width: 0;
+}
+.macros-dialog__count {
+  font-size: 11px;
+  color: var(--color-text-secondary);
+}
+/* Name reads as plain text; the editable affordance appears on hover/focus. */
+.macros-dialog__name-input {
+  font: inherit;
+  font-size: 13px;
+  color: var(--color-text);
+  width: 100%;
+  min-width: 0;
+  padding: 2px 4px;
+  margin: -2px -4px; /* keep text aligned with the row despite padding */
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+}
+.macros-dialog__name-input:hover {
+  border-color: var(--color-border);
+}
+.macros-dialog__name-input:focus {
+  outline: none;
+  border-color: var(--color-accent);
+  background: var(--color-surface);
+}
+.macros-dialog__shortcut {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--color-text-secondary);
+  flex-shrink: 0;
+}
+.macros-dialog__shortcut-select {
+  font: inherit;
+  font-size: 12px;
+  color: var(--color-text);
+  padding: 3px 6px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+}
+.macros-dialog__shortcut-select:focus {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -1px;
+  border-color: var(--color-accent);
+}
+.macros-dialog__actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+/* Watermark config dialog — on/off switch + text + opacity. */
+.watermark {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 280px;
+}
+.watermark__switch {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--color-text);
+}
+.watermark__switch-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.watermark__switch input[type='checkbox'] {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--color-accent);
+  cursor: pointer;
+}
+.watermark__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+.watermark__field input,
+.watermark__select {
+  font: inherit;
+  font-size: 13px;
+  color: var(--color-text);
+  padding: 6px 10px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+}
+.watermark__field input:focus,
+.watermark__select:focus {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -1px;
+  border-color: var(--color-accent);
+}
+.watermark__field input:disabled,
+.watermark__select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.watermark__note {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--color-text-secondary);
+}
+
+/* ── Sparklines ────────────────────────────────────────────────── */
+.sparkline-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 3;
+}
+/* Formula-auditing tracer arrows overlay (Trace Precedents / Dependents). */
+.trace-layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  overflow: visible;
+  z-index: 4;
+}
+.sparkline-cell {
+  position: absolute;
+  pointer-events: none;
+}
+.sparkline-cell svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* ── Show Formulas overlay ─────────────────────────────────────
+   Every cell carrying a formula gets an opaque text panel sitting
+   over its rect with the formula source painted in. Non-destructive —
+   toggling off makes the overlay disappear. */
+.show-formulas-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 3;
+}
+.show-formulas-cell {
+  position: absolute;
+  pointer-events: none;
+  background: #fff7e6;
+  border: 1px solid #f59e0b;
+  color: #92400e;
+  font: 11px/1.2 var(--font-mono, 'JetBrains Mono', SFMono-Regular, Consolas, monospace);
+  padding: 2px 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  box-sizing: border-box;
+}
+[data-theme='dark'] .show-formulas-cell {
+  background: #3a2a14;
+  border-color: #d97706;
+  color: #fde68a;
+}
+
+/* ── Drill-down dialog table ──────────────────────────────────── */
+.drill-down {
+  display: flex;
+  flex-direction: column;
+  min-height: 200px;
+}
+.drill-down__empty {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  padding: 20px 12px;
+}
+.drill-down__scroller {
+  max-height: 60vh;
+  overflow: auto;
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-sm);
+}
+.drill-down__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.drill-down__table th {
+  position: sticky;
+  top: 0;
+  background: var(--color-surface-alt);
+  text-align: left;
+  font-weight: var(--weight-medium, 500);
+  font-size: 11px;
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--color-divider);
+  white-space: nowrap;
+}
+.drill-down__table td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--color-divider);
+  color: var(--color-text);
+}
+.drill-down__table tr:last-child td {
+  border-bottom: 0;
+}
+
+.insert-sparkline {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.insert-sparkline__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+.insert-sparkline__field input {
+  font: inherit;
+  font-size: 13px;
+  color: var(--color-text);
+  padding: 6px 10px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+}
+.insert-sparkline__field input:focus {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -1px;
+  border-color: var(--color-accent);
+}
+.insert-sparkline__type {
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+.insert-sparkline__type legend {
+  padding: 0 4px;
+  font-weight: var(--weight-medium, 500);
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+.insert-sparkline__type-opt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  color: var(--color-text);
+  font-size: 13px;
+}
+.insert-sparkline__type-opt:hover {
+  background: var(--color-hover);
+}
+.insert-sparkline__type-opt--active {
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+}
+.insert-sparkline__error {
+  color: #b91c1c;
+  font-size: 12px;
+  padding: 6px 10px;
+  background: #fef2f2;
+  border-radius: var(--radius-sm);
+}
+
+.page-setup__note {
+  margin: 0;
+  padding: 10px 12px;
+  background: var(--color-surface-alt);
+  border-radius: var(--radius-sm);
+  font-size: 12.5px;
+  color: var(--color-text-soft, var(--color-text));
+  line-height: 1.5;
+}
+
+/* Form fields */
+.field {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-2) 0;
+  font-size: var(--text-sm);
+}
+
+.field__label {
+  color: var(--color-text-secondary);
+  font-weight: var(--weight-medium);
+}
+
+.field__value {
+  color: var(--color-text);
+}
+
+.field__value--mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.input {
+  width: 100%;
+  height: 28px;
+  padding: 0 var(--space-3);
+  font-family: inherit;
+  font-size: var(--text-sm);
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+}
+
+.input:focus {
+  border-color: var(--color-focus-ring);
+  outline: none;
+}
+
+/* About dialog */
+.about {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: var(--space-3);
+}
+
+.about__icon {
+  margin-bottom: var(--space-2);
+}
+
+.about__title {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+}
+
+.about__tagline {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--text-base);
+}
+
+.about__tagline a,
+.about__facts a {
+  color: var(--color-accent);
+  text-decoration: none;
+}
+
+.about__tagline a:hover,
+.about__facts a:hover {
+  text-decoration: underline;
+}
+
+.about__facts {
+  display: grid;
+  grid-template-columns: 80px 1fr;
+  gap: var(--space-2) var(--space-5);
+  margin: var(--space-4) 0 0;
+  width: 100%;
+  text-align: left;
+  font-size: var(--text-sm);
+}
+
+.about__facts dt {
+  color: var(--color-text-secondary);
+  font-weight: var(--weight-medium);
+}
+
+.about__facts dd {
+  margin: 0;
+  color: var(--color-text);
+}
+
+.input--textarea {
+  height: auto;
+  padding: var(--space-3);
+  resize: vertical;
+  min-height: 60px;
+  line-height: var(--leading-normal);
+  font-family: inherit;
+}
+
+.format-cells {
+  display: grid;
+  grid-template-columns: 144px minmax(0, 1fr);
+  gap: 18px;
+  min-width: 560px;
+}
+
+.format-cells__tabs {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.format-cells__tab {
+  height: 32px;
+  padding: 0 12px;
+  text-align: left;
+  background: var(--color-surface);
+  color: var(--color-text);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: var(--weight-medium, 500);
+  cursor: pointer;
+}
+
+.format-cells__tab:hover {
+  background: var(--color-hover);
+}
+
+.format-cells__tab--active {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+  background: var(--color-accent-soft, transparent);
+}
+
+.format-cells__panel {
+  min-width: 0;
+}
+
+.format-cells__section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.format-cells__checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding-left: 144px;
+}
+
+.format-cells__check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.format-cells__check input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--color-accent);
+}
+
+.format-cells__color {
+  width: 56px;
+  height: 30px;
+  padding: 2px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+}
+
+.command-search {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  /* No `min-width` — the parent `.dialog` is min(540px, 92vw), so a
+     min-width here that exceeds the dialog forced the body to
+     horizontally scroll. Width comes from the dialog; rows truncate
+     overflowing label/path text via ellipsis. */
+  width: 100%;
+}
+
+.command-search__results {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 360px;
+  /* `overflow: auto` enables BOTH axes; a long command path was
+     spilling out and triggering a horizontal scrollbar at the bottom
+     of the dialog. We only want vertical scroll. */
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 4px;
+}
+
+.command-search__item {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.command-search__item:hover {
+  background: var(--color-hover);
+}
+
+.command-search__item--active {
+  border-color: var(--color-accent);
+  background: var(--color-accent-soft, transparent);
+}
+
+.command-search__main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.command-search__label {
+  font-size: 14px;
+  font-weight: var(--weight-medium, 500);
+  /* Label can be long (e.g. "Conditional formatting — Manage rules…").
+     Truncate rather than wrap so each result row stays one line tall. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.command-search__path,
+.command-search__shortcut,
+.command-search__empty,
+.command-search__hint {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.command-search__path {
+  /* Breadcrumb path can be long (e.g. "Insert › Function › Statistical").
+     Truncate to keep the dialog single-axis. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.command-search__shortcut {
+  white-space: nowrap;
+  flex: none;
+}
+
+.command-search__empty {
+  padding: 18px 12px;
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-sm);
+}
+
+.command-search__hint {
+  margin: 0;
+}
+
+.insert-function {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 620px;
+}
+
+.insert-function__body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 240px;
+  gap: 12px;
+  min-height: 320px;
+}
+
+.insert-function__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: auto;
+}
+
+.insert-function__item {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--color-divider);
+  cursor: pointer;
+}
+
+.insert-function__item:last-child {
+  border-bottom: 0;
+}
+
+.insert-function__item:hover {
+  background: var(--color-hover);
+}
+
+.insert-function__item--active {
+  background: var(--color-selected);
+}
+
+.insert-function__name {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: var(--weight-semibold, 600);
+}
+
+.insert-function__desc {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.insert-function__detail {
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-alt);
+}
+
+.insert-function__detail-name {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: var(--weight-semibold, 600);
+}
+
+.insert-function__detail-sig {
+  margin-top: 6px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--color-accent);
+}
+
+.insert-function__detail-desc {
+  margin: 10px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--color-text-secondary);
+}
+
+/* .btn-primary / .btn-secondary render exactly like the UI-kit Button
+   (design-system Button: gradient + radius-md + soft depth, brightness/glow
+   hover, press lift). Applied class-side so every call site matches the kit
+   without swapping each to <Button>. */
+.btn-primary {
+  height: 28px;
+  padding: 0 var(--space-5);
+  background: var(--accent-gradient, var(--color-accent));
+  color: var(--color-accent-fg, var(--color-text-on-accent));
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  box-shadow:
+    0 1px 2px rgba(16, 24, 40, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  letter-spacing: -0.005em;
+  cursor: pointer;
+  transition:
+    transform var(--motion-base) var(--ease-spring),
+    filter var(--motion-fast) var(--ease-out),
+    box-shadow var(--motion-base) var(--ease-out);
+}
+.btn-primary:hover:not(:disabled) {
+  filter: brightness(1.06) saturate(1.05);
+  box-shadow:
+    0 4px 12px -2px color-mix(in srgb, var(--color-accent) 45%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+.btn-primary:active:not(:disabled) {
+  transform: translateY(1px);
+}
+.btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-secondary {
+  height: 28px;
+  padding: 0 var(--space-5);
+  background: var(--color-surface);
+  color: var(--color-text);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-1);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  cursor: pointer;
+  transition:
+    transform var(--motion-base) var(--ease-spring),
+    background var(--motion-fast) var(--ease-out),
+    border-color var(--motion-fast) var(--ease-out);
+}
+.btn-secondary:hover:not(:disabled) {
+  background: var(--color-hover);
+  border-color: var(--color-text-secondary);
+}
+.btn-secondary:active:not(:disabled) {
+  transform: translateY(1px);
+}
+.btn-secondary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Collab status indicator. Small pill in the sheet-tabs strip showing the
+   transport state: Solo (no room), Connecting, Live (green), Offline.
+   ───────────────────────────────────────────────────────────────────────── */
+.collab-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 3px 9px 3px 7px;
+  border-radius: var(--radius-pill);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold, 600);
+  letter-spacing: 0.02em;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-soft, var(--color-text-secondary, var(--color-text)));
+  user-select: none;
+}
+
+.collab-indicator__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-text-muted, #999);
+}
+
+.collab-indicator--live {
+  color: var(--color-accent);
+  border-color: color-mix(in srgb, var(--color-accent) 40%, transparent);
+  background: color-mix(in srgb, var(--color-accent) 8%, var(--color-surface));
+}
+.collab-indicator--live .collab-indicator__dot {
+  background: var(--color-accent);
+  box-shadow: 0 0 6px var(--color-accent);
+}
+
+.collab-indicator--connecting .collab-indicator__dot {
+  background: var(--color-warning);
+  animation: collab-pulse 1.2s ease-in-out infinite;
+}
+
+.collab-indicator--offline {
+  color: var(--color-danger);
+  border-color: color-mix(in srgb, var(--color-danger) 35%, transparent);
+}
+.collab-indicator--offline .collab-indicator__dot {
+  background: var(--color-danger);
+}
+
+/* Sync-health warning: WS is "live" but our Y.Doc state vector
+   disagrees with peers' for >15 s. Amber to distinguish from the
+   harder red of "offline" (still recoverable; user just needs to
+   know). Pulses to draw the eye without being aggressive. */
+.collab-indicator--diverged {
+  color: var(--color-warning);
+  border-color: color-mix(in srgb, var(--color-warning) 50%, transparent);
+  background: color-mix(in srgb, var(--color-warning) 12%, var(--color-surface));
+}
+.collab-indicator--diverged .collab-indicator__dot {
+  background: var(--color-warning);
+  animation: collab-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes collab-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* Wrapper around the pill — anchor point for the dead-letter popover. */
+.collab-indicator__wrap {
+  position: relative;
+  display: inline-block;
+}
+
+/* Clickable pill variant — used when there are dead-letter entries.
+   The base .collab-indicator styles already cover the look; this just
+   resets the <button> defaults so the pill renders identically to the
+   <span> form. */
+.collab-indicator--clickable {
+  background: var(--color-surface);
+  font: inherit;
+  cursor: pointer;
+}
+.collab-indicator--clickable:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+/* Detail popover anchored above the pill (the indicator lives in the
+   bottom strip, so we open upwards). Width capped so a long error
+   message doesn't push it off-screen on narrow viewports. */
+.collab-indicator__popover {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  right: 0;
+  z-index: 50;
+  width: 360px;
+  max-width: calc(100vw - 32px);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  padding: 10px 12px;
+  font-size: 12px;
+  color: var(--color-text);
+  text-align: left;
+}
+
+.collab-indicator__popover-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--color-border);
+  margin-bottom: 6px;
+}
+
+.collab-indicator__popover-hint {
+  font-size: 11px;
+  color: var(--color-text-soft, var(--color-text-secondary, var(--color-text)));
+  font-weight: var(--weight-regular, 400);
+}
+
+.collab-indicator__popover-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.collab-indicator__popover-item {
+  border-left: 3px solid var(--color-border);
+  padding: 4px 8px;
+  background: color-mix(in srgb, var(--color-text) 4%, transparent);
+  border-radius: var(--radius-sm);
+}
+.collab-indicator__popover-item[data-classification='transient'] {
+  border-left-color: var(--color-warning);
+}
+.collab-indicator__popover-item[data-classification='permanent'] {
+  border-left-color: var(--color-danger);
+}
+
+.collab-indicator__popover-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.collab-indicator__popover-id {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, monospace);
+  font-size: 11.5px;
+  color: var(--color-text);
+}
+
+.collab-indicator__popover-chip {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: var(--weight-semibold, 600);
+}
+.collab-indicator__popover-chip--transient {
+  background: color-mix(in srgb, var(--color-warning) 22%, transparent);
+  color: #8a5300;
+}
+.collab-indicator__popover-chip--permanent {
+  background: color-mix(in srgb, var(--color-danger) 22%, transparent);
+  color: #a11d15;
+}
+
+.collab-indicator__popover-age {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--color-text-soft, var(--color-text-secondary, var(--color-text)));
+}
+
+.collab-indicator__popover-err {
+  margin-top: 4px;
+  font-size: 11.5px;
+  color: var(--color-text-soft, var(--color-text-secondary, var(--color-text)));
+  word-break: break-word;
+}
+
+.collab-indicator__popover-footer {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid var(--color-border);
+  font-size: 11px;
+  color: var(--color-text-soft, var(--color-text-secondary, var(--color-text)));
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Co-edit "self-host required" banner. Appears when a /r/:roomId URL hits
+   a build that doesn't ship co-editing (the GitHub Pages demo). Pure
+   informational; doesn't intercept the user's editing session.
+   ───────────────────────────────────────────────────────────────────────── */
+.collab-banner {
+  position: fixed;
+  bottom: 56px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5000;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 720px;
+  padding: 10px 12px 10px 16px;
+  background: var(--color-accent);
+  color: #fff;
+  border-radius: 999px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.22);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.collab-banner__body {
+  flex: 1 1 auto;
+}
+.collab-banner__body code {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
+  padding: 1px 5px;
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: var(--radius-sm);
+}
+.collab-banner__body a {
+  color: #fff;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+
+.collab-banner__close {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  background: transparent;
+  color: #fff;
+  font-size: 18px;
+  line-height: 1;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.collab-banner__close:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+/* ───────────────────────────────────────────────────────────────
+ * Toast stack — bottom-right, fixed. Designed to coexist with the
+ * persistent banners (collab-banner / autosave-restore / preview)
+ * by occupying a different region of the screen. Toasts are for
+ * state TRANSITIONS ("saved", "copied", "couldn't export"); banners
+ * stay for STATE ("you are offline", "this is a preview").
+ * ──────────────────────────────────────────────────────────── */
+.toast-stack {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 9000;
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 8px;
+  pointer-events: none;
+  max-width: min(380px, calc(100vw - 32px));
+}
+@media (max-width: 720px) {
+  .toast-stack {
+    /* On phones, sit above the bottom action bar (~44 px + safe-
+       area). Wider toast pills so they read at thumb distance. */
+    right: 8px;
+    bottom: calc(56px + env(safe-area-inset-bottom, 0px));
+    max-width: calc(100vw - 16px);
+  }
+}
+.toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px 10px 14px;
+  border-radius: 8px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-strong);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.12);
+  font-size: 13.5px;
+  line-height: 1.4;
+  color: var(--color-text);
+  animation: toast-in 180ms ease-out;
+}
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.toast__icon {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 12px;
+  line-height: 1;
+  color: #fff;
+}
+.toast--info .toast__icon {
+  background: var(--color-text-secondary);
+}
+.toast--success {
+  border-color: color-mix(in srgb, var(--color-success, #137333) 35%, var(--color-border-strong));
+}
+.toast--success .toast__icon {
+  background: var(--color-success, #137333);
+}
+.toast--error {
+  border-color: color-mix(in srgb, var(--color-danger, #c4321a) 35%, var(--color-border-strong));
+  background: color-mix(in srgb, var(--color-danger, #c4321a) 4%, var(--color-surface));
+}
+.toast--error .toast__icon {
+  background: var(--color-danger, #c4321a);
+}
+.toast__message {
+  flex: 1;
+  min-width: 0;
+  word-break: break-word;
+}
+.toast__action {
+  flex-shrink: 0;
+  background: transparent;
+  border: 0;
+  padding: 2px 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-accent);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+.toast__action:hover {
+  background: var(--color-surface-strip);
+}
+.toast__close {
+  flex-shrink: 0;
+  background: transparent;
+  border: 0;
+  width: 24px;
+  height: 24px;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  font-size: 18px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.toast__close:hover {
+  background: var(--color-surface-strip);
+  color: var(--color-text);
+}
+
+/* Neutral variant (view-only notice) — softer, doesn't feel like an alert. */
+.collab-banner--neutral {
+  background: var(--color-surface);
+  color: var(--color-text);
+  border: 1px solid var(--color-border-strong);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+}
+.collab-banner--neutral .collab-banner__body code {
+  background: var(--color-surface-alt);
+  color: var(--color-text);
+}
+.collab-banner--neutral .collab-banner__body a {
+  color: var(--color-accent);
+  text-decoration-color: var(--color-accent);
+}
+.collab-banner--neutral .collab-banner__close {
+  color: var(--color-text-soft, var(--color-text));
+}
+.collab-banner--neutral .collab-banner__close:hover {
+  background: var(--color-hover);
+}
+
+/* Warn variant — for the "Waiting to reconnect to server" banner.
+   Amber to match the diverged sync-health pill, softer than the
+   destructive red default banner. */
+.collab-banner--warn {
+  background: color-mix(in srgb, var(--color-warning) 18%, var(--color-surface));
+  color: var(--color-warning);
+  border: 1px solid color-mix(in srgb, var(--color-warning) 50%, transparent);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+}
+.collab-banner--warn .collab-banner__body strong {
+  color: #8a4a00;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Live presence: remote cursors / selections + avatar stack.
+   The cursor overlay is an absolutely-positioned layer over the grid;
+   each peer's selection is a colored rectangle with a name tag at the
+   top-right. Avatar stack lives next to the connection pill.
+   ───────────────────────────────────────────────────────────────────────── */
+.presence-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 60;
+}
+
+.presence-cursor {
+  position: absolute;
+  border: 2px solid var(--presence-color, #1a73e8);
+  background: color-mix(in srgb, var(--presence-color, #1a73e8) 12%, transparent);
+  border-radius: 2px;
+  pointer-events: none;
+  /* Intentionally NO transition on top/left/width/height. Univer's grid
+     scrolls by repainting the canvas — the DOM canvas element itself
+     doesn't move, so the cursor's absolute coords need to update every
+     frame to track the cell. A CSS transition on top/left makes the
+     cursor lerp from its old viewport position to the new one over
+     80 ms; during continuous scrolling, each frame's repaint starts
+     a new lerp, so the cursor visually pins to the viewport instead
+     of moving with the cell. Smooth selection-change transitions are
+     handled by `--presence-cursor--moving` below, applied only when
+     the peer's anchor cell actually changes. */
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.6) inset;
+}
+
+/* Applied for one frame when a peer's selection moves to a different
+   cell, so the rectangle eases between cells instead of teleporting.
+   PresenceLayer toggles this class on cells whose anchor (sr,sc,er,ec)
+   differs from the previous frame. */
+/* Non-primary ranges in a multi-range (Ctrl-click) selection. Painted
+   with a thinner border + lower fill opacity so the primary range
+   (with the name label + live-edit ghost) still reads as the
+   "current" cursor location. */
+.presence-cursor--extra {
+  border-width: 1px;
+  background: color-mix(in srgb, var(--presence-color, #1a73e8) 8%, transparent);
+}
+
+.presence-cursor--moving {
+  transition:
+    top 120ms ease-out,
+    left 120ms ease-out,
+    width 120ms ease-out,
+    height 120ms ease-out;
+}
+
+.presence-cursor__label {
+  position: absolute;
+  top: -20px;
+  left: -2px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 6px;
+  font-size: 11px;
+  font-weight: var(--weight-semibold, 600);
+  color: #fff;
+  background: var(--presence-color, #1a73e8);
+  border-radius: 3px 3px 3px 0;
+  white-space: nowrap;
+  pointer-events: none;
+  line-height: 1;
+  letter-spacing: 0.01em;
+}
+
+/* Live-typing variant — the peer is typing in this cell. Cursor pulses
+   subtly to draw the eye; the ghost text overlay shows what they're
+   typing before they commit. */
+.presence-cursor--editing {
+  background: color-mix(in srgb, var(--presence-color, #1a73e8) 18%, transparent);
+  animation: presence-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes presence-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.6) inset;
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px rgba(255, 255, 255, 0.6) inset,
+      0 0 0 2px color-mix(in srgb, var(--presence-color, #1a73e8) 35%, transparent);
+  }
+}
+
+.presence-cursor__ghost {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  padding: 0 4px;
+  font-size: 12px;
+  color: color-mix(in srgb, var(--presence-color, #1a73e8) 80%, #000);
+  background: color-mix(in srgb, #fff 92%, var(--presence-color, #1a73e8));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  font-family: var(--font-sans, -apple-system, system-ui, sans-serif);
+  line-height: 1;
+}
+
+.presence-avatars {
+  display: inline-flex;
+  align-items: center;
+  margin-right: 8px;
+}
+
+.presence-avatar {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 11px;
+  font-weight: var(--weight-semibold, 600);
+  border: 2px solid var(--color-surface);
+  margin-left: -8px;
+  position: relative;
+  cursor: default;
+  user-select: none;
+}
+.presence-avatar:first-child {
+  margin-left: 0;
+}
+.presence-avatar--more {
+  background: var(--color-surface-alt);
+  color: var(--color-text);
+  border-color: var(--color-surface);
+}
+.presence-avatar--idle {
+  opacity: 0.55;
+  filter: grayscale(0.4);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Share-for-co-edit dialog. Stacks input rows, then renders the generated
+   URLs in monospace boxes with a copy button on the right.
+   ───────────────────────────────────────────────────────────────────────── */
+.share-room {
+  display: grid;
+  gap: 14px;
+}
+.share-room__row {
+  display: grid;
+  gap: 6px;
+}
+.share-room__label {
+  font-size: 12px;
+  font-weight: var(--weight-semibold, 600);
+  color: var(--color-text-soft, var(--color-text));
+  letter-spacing: 0.02em;
+}
+.share-room__hint {
+  font-size: 12px;
+  color: var(--color-text-soft, var(--color-text));
+  margin: 0;
+}
+.share-room__file {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.share-room__file-name {
+  font-size: 13px;
+  color: var(--color-text-soft, var(--color-text));
+  flex: 1 1 auto;
+  min-width: 0;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.share-room__segment {
+  display: inline-flex;
+  gap: 8px;
+}
+.share-room__seg-opt {
+  flex: 1 1 0;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: var(--weight-medium, 500);
+  text-align: left;
+}
+.share-room__seg-opt:hover {
+  background: var(--color-hover);
+}
+.share-room__seg-opt--active {
+  border-color: var(--color-accent);
+  background: var(--color-accent-soft, transparent);
+  color: var(--color-accent);
+}
+.share-room__seg-opt-desc {
+  font-size: 11px;
+  font-weight: var(--weight-regular, 400);
+  color: var(--color-text-soft, var(--color-text));
+}
+.share-room__seg-opt--active .share-room__seg-opt-desc {
+  color: var(--color-accent);
+}
+
+.share-room__urls {
+  display: grid;
+  gap: 10px;
+  margin-top: 4px;
+}
+.share-room__url {
+  display: grid;
+  gap: 4px;
+}
+.share-room__url-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+.share-room__url-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-alt);
+  color: var(--color-text);
+}
+.share-room__copy {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  cursor: pointer;
+  font-size: 13px;
+}
+.share-room__copy:hover {
+  background: var(--color-hover);
+}
+.share-room__copy--done {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+  background: var(--color-accent-soft, transparent);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Secure share links (sharing-model §6.1). Sits below the anonymous-room
+   URLs in the share dialog's "ready" stage, for personal-mode saved files.
+   ───────────────────────────────────────────────────────────────────────── */
+.share-link {
+  display: grid;
+  gap: 8px;
+}
+.share-link__divider {
+  height: 1px;
+  background: var(--color-divider);
+  margin: 6px 0 2px;
+}
+.share-link__controls {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.share-link__field {
+  display: grid;
+  gap: 4px;
+  flex: 1 1 120px;
+  min-width: 0;
+}
+.share-link__create {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.share-link__list {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+.share-link__empty {
+  font-size: 13px;
+  color: var(--color-text-soft, var(--color-text));
+}
+.share-link__item {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-alt);
+}
+.share-link__item-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.share-link__badge {
+  font-size: 11px;
+  font-weight: var(--weight-semibold, 600);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border-strong);
+  color: var(--color-text-soft, var(--color-text));
+}
+.share-link__badge--edit {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+  background: var(--color-accent-soft, transparent);
+}
+.share-link__lock {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  font-weight: var(--weight-medium, 500);
+  color: var(--color-text-soft, var(--color-text));
+}
+.share-link__revoke {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--color-text);
+}
+.share-link__revoke:hover {
+  border-color: #d93025;
+  color: #d93025;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Outline (group) side panel. Mirrors the TablesPanel surface treatment —
+   right-edge column, surface-alt tint — so the two panels feel like a
+   matched set when both are open.
+   ───────────────────────────────────────────────────────────────────────── */
+.outline-panel {
+  animation: cs-slide-in-right var(--motion-slow) var(--ease-out) both;
+  /* 320px to match every other side panel (was 280 — the one odd width). */
+  width: 320px;
+  flex: 0 0 320px;
+  background: var(--color-surface-alt);
+  border-top: 1px solid var(--color-divider);
+  border-left: 1px solid var(--color-divider);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.outline-panel__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-divider);
+  font-weight: 600;
+  font-size: var(--text-sm);
+}
+
+.outline-panel__close {
+  background: transparent;
+  border: 0;
+  color: var(--color-text-secondary, var(--color-text));
+  cursor: pointer;
+  padding: 2px;
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--radius-sm);
+}
+
+.outline-panel__close:hover {
+  background: var(--color-surface-strip);
+}
+
+.outline-panel__body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 8px 12px 14px;
+}
+
+.outline-panel__empty {
+  color: var(--color-text-soft, var(--color-text));
+  font-size: var(--text-sm);
+  line-height: 1.45;
+}
+
+.outline-panel__section {
+  margin-top: 10px;
+}
+
+.outline-panel__section:first-child {
+  margin-top: 0;
+}
+
+.outline-panel__section-title {
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: var(--weight-semibold, 600);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-soft, var(--color-text-secondary, var(--color-text)));
+}
+
+.outline-panel__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.outline-panel__row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0;
+}
+
+.outline-panel__toggle,
+.outline-panel__remove {
+  background: transparent;
+  border: 0;
+  color: var(--color-text);
+  padding: 2px 4px;
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.outline-panel__toggle:hover,
+.outline-panel__remove:hover {
+  background: var(--color-surface-strip);
+}
+
+.outline-panel__toggle[aria-pressed='true'] {
+  color: var(--color-accent);
+}
+
+.outline-panel__range {
+  flex: 1 1 auto;
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Custom tooltip. Drop-in replacement for the slow native `title=` tooltip:
+   300 ms delay, dark pill, portaled to <body> so it escapes ribbon clipping.
+   The trigger keeps its `aria-label` for screen readers; the tooltip itself
+   is purely visual (pointer-events: none, so it never blocks clicks).
+   ───────────────────────────────────────────────────────────────────────── */
+.tooltip {
+  position: fixed;
+  z-index: 10000;
+  transform: translateX(-50%);
+  padding: 4px 8px;
+  background: rgba(28, 31, 36, 0.95);
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: var(--weight-medium, 500);
+  line-height: 1.3;
+  border-radius: var(--radius-sm);
+  pointer-events: none;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.22);
+  /* Subtle fade-in so the tooltip doesn't pop harshly after the delay. */
+  animation: tooltip-fade-in 120ms ease-out both;
+}
+
+.tooltip--top {
+  transform: translate(-50%, -100%);
+}
+
+/* With a keyboard shortcut, layout as [label] [shortcut pill] on one
+   line so it stays scannable at a glance. Excel uses two lines for
+   long descriptions; ours are short, so one line works. */
+.tooltip--with-shortcut {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+.tooltip__shortcut {
+  display: inline-block;
+  padding: 1px 5px;
+  background: rgba(255, 255, 255, 0.18);
+  color: rgba(255, 255, 255, 0.92);
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  font-weight: var(--weight-regular, 400);
+  letter-spacing: 0.02em;
+}
+
+@keyframes tooltip-fade-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 2px);
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.tooltip--top {
+  animation-name: tooltip-fade-in-top;
+}
+
+@keyframes tooltip-fade-in-top {
+  from {
+    opacity: 0;
+    transform: translate(-50%, calc(-100% + 2px));
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -100%);
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Drag-and-drop file open overlay. Window-level; appears while the user is
+   dragging a file over the page. Pointer-events disabled so it never
+   intercepts the actual drop event.
+   ───────────────────────────────────────────────────────────────────────── */
+.file-drop-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.file-drop-overlay__card {
+  pointer-events: none;
+  padding: var(--space-7) var(--space-9);
+  background: var(--color-surface);
+  border: 2px dashed var(--color-accent);
+  border-radius: var(--radius-md);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
+  text-align: center;
+}
+
+.file-drop-overlay__title {
+  font-size: var(--text-lg, 18px);
+  font-weight: var(--weight-semibold, 600);
+  color: var(--color-accent);
+}
+
+.file-drop-overlay__hint {
+  margin-top: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--color-text-soft, var(--color-text));
+  font-variant-numeric: tabular-nums;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Autosave restore banner — surfaces between the toolbar and the formula
+   bar when a recovered snapshot is available. Soft amber so it's noticed
+   but doesn't shout. Sits in the natural document flow (grid-row pushes
+   down) rather than overlaying so the user can read it and still see the
+   grid below.
+   ───────────────────────────────────────────────────────────────────────── */
+.autosave-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  background: var(--color-warning-soft);
+  border-bottom: 1px solid color-mix(in srgb, var(--color-warning) 40%, transparent);
+  color: var(--color-warning);
+  font-size: 13px;
+}
+.autosave-banner__text {
+  flex: 1;
+}
+.autosave-banner__btn {
+  font: inherit;
+  padding: 4px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid color-mix(in srgb, var(--color-warning) 40%, transparent);
+  background: transparent;
+  color: var(--color-warning);
+  cursor: pointer;
+}
+.autosave-banner__btn:hover {
+  background: color-mix(in srgb, var(--color-warning) 20%, transparent);
+}
+.autosave-banner__btn--primary {
+  background: var(--color-warning);
+  /* white on the dark-orange warning in light; auto-flips to dark on the
+     lighter yellow warning in dark mode so "Restore" stays readable. */
+  color: var(--color-text-on-accent);
+  border-color: var(--color-warning);
+}
+.autosave-banner__btn--primary:hover {
+  background: color-mix(in srgb, var(--color-warning) 82%, #000);
+  border-color: color-mix(in srgb, var(--color-warning) 82%, #000);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Version-history preview banner. Sits in the natural document flow
+   above the grid row while a snapshot is being previewed. Blue tint so
+   it's visually distinct from the orange autosave banner (different
+   urgency: "informational, you're in preview" vs "warning, recover?").
+   ───────────────────────────────────────────────────────────────────────── */
+.preview-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  background: var(--color-info-soft);
+  border-bottom: 1px solid color-mix(in srgb, var(--color-info) 40%, transparent);
+  color: var(--color-info);
+  font-size: 13px;
+}
+.preview-banner__text {
+  flex: 1;
+}
+.preview-banner__btn {
+  font: inherit;
+  padding: 4px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid color-mix(in srgb, var(--color-info) 40%, transparent);
+  background: transparent;
+  color: var(--color-info);
+  cursor: pointer;
+}
+.preview-banner__btn:hover {
+  background: color-mix(in srgb, var(--color-info) 20%, transparent);
+}
+.preview-banner__btn--primary {
+  background: var(--color-info);
+  color: var(--color-text-on-accent);
+  border-color: var(--color-info);
+}
+.preview-banner__btn--primary:hover {
+  background: color-mix(in srgb, var(--color-info) 82%, #000);
+  border-color: color-mix(in srgb, var(--color-info) 82%, #000);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Version-history panel. Builds on `.side-panel` chrome and adds a
+   two-tab strip + a time-grouped snapshot list. Manual snapshots get
+   a bookmark icon (intentionally saved); auto snapshots get a clock.
+   ───────────────────────────────────────────────────────────────────────── */
+.version-history__tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--color-divider);
+  padding: 0 4px;
+}
+.version-history__tab {
+  position: relative;
+  padding: 8px 14px;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+.version-history__tab:hover {
+  color: var(--color-text);
+}
+.version-history__tab--active {
+  color: var(--color-accent);
+  font-weight: var(--weight-semibold, 600);
+}
+.version-history__tab--active::after {
+  content: '';
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  bottom: -1px;
+  height: 2px;
+  background: var(--color-accent);
+  border-radius: 2px 2px 0 0;
+}
+.version-history__body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 0;
+}
+.version-history__group {
+  padding: 6px 12px 10px;
+}
+.version-history__group-label {
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: var(--weight-medium, 500);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted, var(--color-text-secondary));
+}
+.version-history__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.version-history__row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  border-radius: var(--radius-sm);
+  transition: background var(--motion-fast) var(--ease-out);
+}
+.version-history__row:hover {
+  background: var(--color-hover);
+}
+.version-history__row--active {
+  background: var(--color-accent-soft, var(--color-pressed));
+}
+.version-history__row-main {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  padding: 4px;
+  cursor: pointer;
+  min-width: 0;
+}
+.version-history__row-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1;
+}
+.version-history__name {
+  font-size: 13px;
+  font-weight: var(--weight-medium, 500);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.version-history__when {
+  font-size: 11px;
+  color: var(--color-text-muted, var(--color-text-secondary));
+}
+.version-history__kind {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  color: var(--color-text-secondary);
+}
+.version-history__kind--manual {
+  color: var(--color-accent);
+}
+.version-history__row-actions {
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity var(--motion-fast) var(--ease-out);
+}
+.version-history__row:hover .version-history__row-actions,
+.version-history__row--active .version-history__row-actions {
+  opacity: 1;
+}
+.version-history__action {
+  border: 0;
+  background: transparent;
+  padding: 4px;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+.version-history__action:hover {
+  background: var(--color-pressed);
+  color: var(--color-text);
+}
+.version-history__action--danger:hover {
+  color: #b91c1c;
+}
+.version-history__rename-input {
+  font: inherit;
+  font-size: 13px;
+  padding: 2px 4px;
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+  width: 100%;
+}
+.version-history__activity {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+.version-history__activity > .side-panel {
+  border-left: 0;
+  border-top: 0;
+  background: transparent;
+  width: 100%;
+  flex: 1;
+}
+/* Hide the nested HistoryPanel's own header — we already render the
+   panel header at the outer VersionHistoryPanel level. */
+.version-history__activity .side-panel__header {
+  display: none;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Responsive shell — viewer + light-editor lane (CLAUDE.md scope).
+   Univer's canvas owns its own touch gestures (pinch-zoom, drag-scroll,
+   long-press selection). The chrome around it is what breaks: a 7-tab
+   menu bar + a wide ribbon both want >600 px horizontal.
+
+   Below ~720 px:
+   - chrome strips compress noticeably so more pixels go to the grid
+   - menu bar + toolbar scroll horizontally with a right-edge fade hint
+   - formula bar input gets a discoverable underline + ≥16 px font
+     (iOS Safari auto-zooms inputs under 16 px on focus)
+   Below ~480 px:
+   - toolbar drops to a single-row scrollable strip with icon-only big
+     buttons (light formatting stays one tap away)
+   - titlebar collapses to ~48 px (was 64), brand icon to 24×24
+
+   IMPORTANT — the title-bar uses the className `.titlebar` (single
+   word). Previous mobile rules used `.title-bar` and `--title-bar-h`
+   which silently never matched any element. Fixed below.
+   ───────────────────────────────────────────────────────────────────────── */
+@media (max-width: 720px) {
+  :root {
+    /* Tighter chrome — total chrome height drops from ~184 px (desktop
+       sum of titlebar + toolbar + formula + sheet-tabs) to ~160 px,
+       reclaiming roughly an extra row of grid on a phone-sized viewport. */
+    --titlebar-h: 56px;
+    --formula-bar-h: 32px;
+    --sheet-tabs-h: 36px;
+  }
+
+  /* Title bar — shrink the brand icon and tighten the two rows so the
+     filename and menu strip both stay legible without claiming a third
+     of the viewport. */
+  .titlebar {
+    padding: 0 12px;
+    gap: 8px;
+  }
+  .titlebar__brand-icon {
+    width: 24px;
+    height: 24px;
+  }
+  .titlebar__center-top {
+    height: 22px;
+    font-size: 13px;
+  }
+  .titlebar__center-bottom {
+    height: 26px;
+    font-size: 13px;
+  }
+  .titlebar__center {
+    padding: 3px 0;
+  }
+  .titlebar__filename,
+  .titlebar__filename-input {
+    height: 22px;
+  }
+  .titlebar__center-bottom .menubar__item {
+    height: 24px;
+  }
+
+  /* Title bar actions strip (Share, kebab) — hide on mobile; everything
+     it carries is also in the File menu. Drives a chunk of horizontal
+     real estate back into the centre column. */
+  .titlebar__actions {
+    display: none;
+  }
+
+  /* Menu bar — single-row horizontal scroll with a right-edge fade so
+     the scroll affordance is visible. The fade is the only hint users
+     get that `Help` lives further right; without it the scroll reads
+     as "nothing's clipped, this is all there is." */
+  .menubar {
+    overflow-x: auto;
+    overflow-y: hidden;
+    flex-wrap: nowrap;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    -webkit-mask-image: linear-gradient(to right, black calc(100% - 18px), transparent);
+    mask-image: linear-gradient(to right, black calc(100% - 18px), transparent);
+  }
+  .menubar::-webkit-scrollbar {
+    display: none;
+  }
+  .menubar__item {
+    flex: 0 0 auto;
+    min-height: 32px;
+    padding: 0 10px;
+  }
+
+  /* Toolbar — keep the OUTER .toolbar non-scrollable so the
+     absolutely-positioned overflow chevrons stay pinned at the
+     viewport edges (anchoring to .toolbar via position: relative).
+     Scrolling happens inside .toolbar__inner — same as desktop —
+     with momentum-scrolling enabled for touch.
+
+     Apply the fade mask to .toolbar__inner instead of .toolbar so
+     the chevrons sit on TOP of the fade rather than being hidden
+     by it. */
+  .toolbar {
+    overflow: hidden;
+  }
+  .toolbar__inner {
+    padding: 0 8px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    -webkit-mask-image: linear-gradient(to right, black calc(100% - 20px), transparent);
+    mask-image: linear-gradient(to right, black calc(100% - 20px), transparent);
+  }
+  .toolbar__inner::-webkit-scrollbar {
+    display: none;
+  }
+  /* Chevrons get a proper 32 px touch target (the desktop 28 px is
+     under the iOS/Android tap-target guideline) and a solid
+     background so they stand out against the fade mask. The
+     desktop hover-darken still works; touch users get the same
+     darker color by default since (hover: none) skips the :hover. */
+  .toolbar__overflow {
+    width: 32px;
+    min-width: 32px;
+  }
+  @media (hover: none) and (pointer: coarse) {
+    .toolbar__overflow {
+      color: var(--color-text);
+    }
+  }
+  .ribbon__group {
+    padding: 0 4px;
+  }
+  .ribbon__group-label {
+    display: none;
+  }
+
+  /* Formula bar — compact name box, discoverable underline on the
+     input, font-size pinned to 16 px (iOS focus-zoom guard). */
+  .formula-bar__name-box {
+    min-width: 64px;
+    width: 64px;
+    padding: 0 8px;
+    font-size: 12px;
+  }
+  .formula-bar__input {
+    background: var(--color-surface);
+    border-bottom: 1px solid var(--color-border);
+    font-size: 16px;
+    height: calc(100% - 2px);
+  }
+  .formula-bar__input:focus {
+    background: var(--color-surface);
+    border-bottom: 2px solid var(--color-accent);
+  }
+
+  /* Touch tap-target minimums on every chrome button. */
+  .titlebar .btn,
+  .toolbar .btn,
+  .formula-bar .formula-bar__action,
+  .formula-bar .formula-bar__fx {
+    min-height: 32px;
+    min-width: 32px;
+  }
+
+  /* Side-panel close buttons — on mobile, Tables/Charts/Outline
+     panels REPLACE the grid (the rail is hidden, the panel takes
+     the full viewport). The desktop "tiny X in the header"
+     pattern is invisible on touch — bump every panel's close
+     button to a proper 40-px tap target with a subtle filled
+     background and add a "← Back" text label before the icon
+     so the back-out affordance is unmistakable.
+     Audit finding 2.3. */
+  .tables-panel__close,
+  .charts-panel__close,
+  .outline-panel__close {
+    min-height: 40px;
+    min-width: 40px;
+    padding: 6px 12px 6px 10px;
+    background: var(--color-surface-strip);
+    border-radius: 6px;
+    color: var(--color-text);
+    font-weight: 600;
+    font-size: 13px;
+    gap: 6px;
+  }
+  .tables-panel__close::before,
+  .charts-panel__close::before,
+  .outline-panel__close::before {
+    content: '← Back';
+    letter-spacing: 0.01em;
+  }
+  /* Hide the original X icon on mobile — replaced by the "← Back"
+     label above. (`.material-icons` covers Univer's icon set; the
+     Casual icon component renders an <svg> we leave visible only
+     when needed via the parent override.) Keep the SVG hidden but
+     reserve its slot in the tap target so the button stays a
+     consistent size. */
+  .tables-panel__close > svg,
+  .charts-panel__close > svg,
+  .outline-panel__close > svg {
+    display: none;
+  }
+
+  /* Sheet tabs — compact paddings + scroll-end fade. Drop the zoom
+     slider + multi-cell stats + section dividers (pinch-zoom on the
+     canvas covers zoom; the stats land on the formula bar). */
+  .sheet-tabs {
+    padding: 0 6px;
+    gap: 4px;
+    -webkit-mask-image: linear-gradient(to right, black calc(100% - 22px), transparent);
+    mask-image: linear-gradient(to right, black calc(100% - 22px), transparent);
+  }
+  .sheet-tabs__zoom-slider,
+  .sheet-tabs__sep,
+  .sheet-tabs__stats {
+    display: none;
+  }
+
+  /* Tighter dialog padding so phone-width modals don't lose chrome to gutters. */
+  .dialog__body {
+    padding: 14px 16px;
+  }
+  .dialog__footer {
+    padding: 12px 16px;
+  }
+
+  /* Side panels replace the grid rather than squeezing it. */
+  .tables-panel,
+  .outline-panel {
+    position: fixed;
+    inset: var(--titlebar-h) 0 var(--sheet-tabs-h) 0;
+    width: auto;
+    flex: none;
+    z-index: 100;
+    border-left: 0;
+  }
+
+  /* Save / message toast stays out of the way of the sheet-tab strip. */
+  .collab-banner {
+    bottom: 72px;
+    max-width: calc(100vw - 16px);
+  }
+}
+
+/* Bottom action bar — visible only on mobile (≤ 480 px). Sticky strip
+   that sits above the sheet-tabs row and carries the most-used
+   formatters (Bold / Italic / Underline / $ / % / decimals / align).
+   Reuses the same Univer commands the desktop ribbon fires, so
+   formatting + undo grouping are identical.
+
+   Default: hidden. Mobile breakpoint flips display to flex. */
+.mobile-bar {
+  display: none;
+}
+.mobile-bar__btn {
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 0;
+  color: var(--color-text-secondary);
+  border-radius: 6px;
+  padding: 0;
+  cursor: pointer;
+}
+.mobile-bar__btn:hover,
+.mobile-bar__btn:active {
+  background: var(--color-hover);
+  color: var(--color-text);
+}
+.mobile-bar__btn:focus-visible {
+  outline: 2px solid var(--color-focus, var(--color-accent, #0e7490));
+  outline-offset: -2px;
+  color: var(--color-text);
+}
+.mobile-bar__btn--on {
+  background: var(--color-selected);
+  color: var(--color-accent);
+}
+.mobile-bar__btn .icon {
+  font-size: 20px;
+}
+.mobile-bar__sep {
+  flex: 0 0 1px;
+  height: 22px;
+  background: var(--color-divider);
+  margin: 0 4px;
+}
+
+@media (max-width: 480px) {
+  /* Very narrow phones — toolbar collapses to a single-row icon-only
+     scrollable strip with row 2 of every ribbon group hidden. Light
+     formatting (B/I/U + currency/percent/comma + font picker) stays
+     one tap away — but each button drops to icon-only.
+
+     The desktop ribbon (`.toolbar`) is hidden entirely on phones — the
+     scrollable strip with row 2 of every ribbon group hidden so the
+     header stays thumb-reachable. */
+  :root {
+    --titlebar-h: 48px;
+    --toolbar-h: 40px;
+    --sheet-tabs-h: 32px;
+    --mobile-bar-h: 40px;
+  }
+
+  /* Bottom action bar visible on mobile only. Sticky above the sheet-
+     tabs strip, full-width, horizontal scroll if too many buttons. */
+  .mobile-bar {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    height: var(--mobile-bar-h);
+    padding: 0 8px;
+    background: var(--color-surface);
+    border-top: 1px solid var(--color-divider);
+    border-bottom: 1px solid var(--color-divider);
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    flex-shrink: 0;
+    z-index: 3;
+  }
+  .mobile-bar::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Even tighter titlebar — drop brand label, keep just the icon. */
+  .titlebar {
+    padding: 0 8px;
+    gap: 6px;
+  }
+  .titlebar__center-top {
+    height: 20px;
+    font-size: 12.5px;
+  }
+  .titlebar__center-bottom {
+    height: 22px;
+    font-size: 12.5px;
+  }
+  .titlebar__brand-icon {
+    width: 22px;
+    height: 22px;
+  }
+  .titlebar__divider {
+    display: none;
+  }
+
+  /* Toolbar: row 2 hidden, big-button labels + chevrons off, ~36 px
+     square hit targets. */
+  .toolbar .ribbon__group-row[data-row='2'] {
+    display: none;
+  }
+  .toolbar .btn__big-label,
+  .toolbar .btn__big-chevron {
+    display: none;
+  }
+  .toolbar .btn--big {
+    padding: 0 8px;
+    min-width: 36px;
+    height: 32px;
+  }
+  .toolbar .btn--big .icon {
+    font-size: 18px;
+  }
+  .toolbar .ribbon__group-lead {
+    display: none;
+  }
+
+  /* Sheet tabs even tighter. */
+  .sheet-tabs__tab {
+    min-height: 28px;
+    padding: 0 10px;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Reduced motion — the design-system collapses its own `.cs-anim-*` utility
+   classes under prefers-reduced-motion, but we reference its keyframes
+   directly (animation: cs-pop-in / cs-rise-in / cs-fade-in) on chrome
+   overlays, so disable those here too. The grid is always instant; only the
+   chrome animates, and that animation is opt-out for motion-sensitive users.
+   ───────────────────────────────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .menu,
+  .dialog,
+  .dialog-backdrop,
+  .formula-suggestions,
+  .statbar-customise,
+  .tables-panel,
+  .side-panel,
+  .charts-panel,
+  .outline-panel {
+    animation: none;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Floating side panels (Phase 4 — UI-kit "smooth & separated" feel).
+   Docked panels were flush rectangles glued to the canvas with hard
+   border-top/border-left. The design-system look is a rounded card that
+   floats off the canvas: a margin gap separates it from the grid + rail,
+   a single hairline + soft shadow lifts it, and the radius clips the
+   header/rows. Slide-in motion stays (set per-panel above). The ribbon and
+   other strips are intentionally NOT touched by this pass.
+   ───────────────────────────────────────────────────────────────────────── */
+.tables-panel,
+.side-panel,
+.charts-panel,
+.outline-panel {
+  /* Rounded floating card — borderless, soft shadow only (matches the
+     toolbar + canvas); the desk gap provides the separation. */
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-2);
+  overflow: hidden;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Dialog form fields → design-system Input / Select look (Phase 4).
+   Applied scoped to .dialog so every dialog's text/number/search inputs and
+   selects get the exact DS field treatment — --radius-md corners,
+   --color-border-strong hairline, and the DS focus signature (accent border
+   + soft 3px accent-soft glow) — without rewriting each dialog's markup to
+   <Input>/<Select>. `.dialog <el>` outspecs the bespoke per-dialog classes.
+   ───────────────────────────────────────────────────────────────────────── */
+.dialog input[type='text'],
+.dialog input[type='number'],
+.dialog input[type='search'],
+.dialog input:not([type]),
+.dialog select {
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border-strong);
+  transition:
+    border-color var(--motion-fast) var(--ease-out),
+    box-shadow var(--motion-fast) var(--ease-out);
+}
+.dialog input[type='text']:focus,
+.dialog input[type='number']:focus,
+.dialog input[type='search']:focus,
+.dialog input:not([type]):focus,
+.dialog select:focus {
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px var(--color-accent-soft);
+}
+/* Checkboxes / radios pick up the accent (DS Checkbox uses --color-accent). */
+.dialog input[type='checkbox'],
+.dialog input[type='radio'] {
+  accent-color: var(--color-accent);
+}
+
+/* Auth form fields → design-system Input look (Phase 4). Scoped to the auth
+   card (app-only; never reaches the SDK or the Univer canvas). */
+.auth-card__field input,
+.auth-card__field select {
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border-strong);
+  transition:
+    border-color var(--motion-fast) var(--ease-out),
+    box-shadow var(--motion-fast) var(--ease-out);
+}
+.auth-card__field input:focus,
+.auth-card__field select:focus {
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: var(--glow-accent);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Compact ribbon view (View → Compact ribbon) — Google-Sheets-style single
+   dense row. Opt-in + persisted; Full (2-row) is the default so nothing
+   regresses. Reuses the mobile single-row mechanism: drop --toolbar-h to a
+   single 40px row, hide row 2, fold the lead big-buttons to icon-only.
+   ───────────────────────────────────────────────────────────────────────── */
+.app[data-ribbon='compact'] {
+  --toolbar-h: 40px;
+}
+.app[data-ribbon='compact'] .toolbar .ribbon__group-row[data-row='2'] {
+  display: none;
+}
+.app[data-ribbon='compact'] .toolbar .btn__big-label,
+.app[data-ribbon='compact'] .toolbar .btn__big-chevron {
+  display: none;
+}
+.app[data-ribbon='compact'] .toolbar .btn--big {
+  flex-direction: row;
+  min-width: 32px;
+  height: 32px;
+  padding: 0 var(--space-2);
+}
+.app[data-ribbon='compact'] .toolbar .ribbon__group {
+  padding-top: var(--space-1);
+  padding-bottom: var(--space-1);
+  justify-content: center;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Dark mode: soft shadows muddy into a dark halo on dark surfaces and don't
+   define edges. The floating cards (toolbar, canvas, panels) switch to a
+   subtle hairline border and drop the shadow — clean definition in dark,
+   while light mode stays borderless + shadow-driven.
+   ───────────────────────────────────────────────────────────────────────── */
+[data-theme='dark'] .toolbar,
+[data-theme='dark'] .grid-host,
+[data-theme='dark'] .tables-panel,
+[data-theme='dark'] .side-panel,
+[data-theme='dark'] .charts-panel,
+[data-theme='dark'] .outline-panel {
+  border: 1px solid var(--color-border);
+  box-shadow: none;
+}

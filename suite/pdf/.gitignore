@@ -1,0 +1,30 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+target/
+*.wasm
+# …but the vendored core wasm must ship — the web build runs no Rust toolchain.
+# Regenerate with tools/build-core-wasm.sh.
+!packages/pdf-sdk/src/wasm/*.wasm
+
+# Render-parity harness artifacts (keep fixtures/, drop renders + libs)
+tools/render-parity/out/
+tools/render-parity/libpdfium.*
+
+# Rust
+crates/**/target/
+
+# Local editor/tooling
+.claude/settings.local.json
+.idea/
+
+# OS
+.DS_Store
+
+# Logs / env
+*.log
+.env
+.env.local

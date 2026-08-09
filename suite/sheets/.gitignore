@@ -1,0 +1,59 @@
+# Vendor tree.
+#
+# As of 2026-06-06 (#51 Univer fork perf umbrella) the live fork lives
+# at vendor/univer-revamp/ as a git submodule pointing at
+# git@github.com:CasualOffice/univer-revamp.git, pinned to a 0.24.0-compat
+# SHA. The submodule itself is tracked via .gitmodules; the working-
+# tree content is still treated as vendor-ignored locally (we don't
+# want stray edits to leak into the sheet repo's git status).
+#
+# Anything else under vendor/ — historical local clones, manually
+# checked-out source for one-off study — stays ignored.
+vendor/*
+!vendor/univer-revamp
+!vendor/design-system
+
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+build/
+.turbo/
+*.tsbuildinfo
+
+# Vite
+.vite/
+
+# Playwright
+test-results/
+playwright-report/
+.playwright/
+blob-report/
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+
+# Env
+.env
+.env.local
+.env.*.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Reference assets dropped at project root (not part of source)
+/img.png
+/*.heic
+
+# Editors
+*.swp
+*.swo
+.vscode/
+# .idea/ is kept (IntelliJ project metadata committed intentionally)
+.claude/
