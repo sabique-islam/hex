@@ -8,15 +8,19 @@ import {
   type CSSProperties,
 } from "react";
 import {
+  ICommandService,
+  IUniverInstanceService,
   LocaleType,
   LogLevel,
   Univer,
   UniverInstanceType,
-  IUniverInstanceService,
 } from "@univerjs/core";
 import type { ISlideData, SlideDataModel } from "@univerjs/slides";
 import { defaultTheme } from "@univerjs/themes";
-import { UniverRenderEnginePlugin } from "@univerjs/engine-render";
+import {
+  IRenderManagerService,
+  UniverRenderEnginePlugin,
+} from "@univerjs/engine-render";
 import { UniverFormulaEnginePlugin } from "@univerjs/engine-formula";
 import { UniverUIPlugin } from "@univerjs/ui";
 import { UniverDocsPlugin } from "@univerjs/docs";
@@ -28,37 +32,27 @@ import { UniverSlidesPlugin } from "@univerjs/slides";
 import { UniverSlidesUIPlugin } from "@univerjs/slides-ui";
 
 import { LOCALES } from "./locale";
-import { DEFAULT_SLIDE_DATA } from "./default-slide";
-import { importPptxToSlides } from "./pptx/pptx-import";
 import { exportSlidesToPptx } from "./pptx/pptx-export";
-import { loadFontsForSnapshot } from "./pptx/fonts-loader";
 
 export interface HexSlidesApi {
   getSnapshot(): ISlideData | null;
   exportPptx(): Promise<Blob>;
-  importPptx(bytes: ArrayBuffer, fileName?: string): Promise<void>;
 }
 
 export interface HexSlidesProps {
-  /** Initial deck. Defaults to a blank title slide. */
-  snapshot?: ISlideData;
-  /** Optional pptx bytes to import on mount (overrides snapshot). */
-  pptxBytes?: ArrayBuffer | null;
-  pptxFileName?: string;
+  snapshot: ISlideData;
   className?: string;
   style?: CSSProperties;
   onReady?: (api: HexSlidesApi) => void;
+  onChange?: () => void;
 }
 
 export const HexSlides = forwardRef<HexSlidesApi, HexSlidesProps>(
-  function HexSlides(
-    { snapshot, pptxBytes, pptxFileName, className, style, onReady },
-    ref,
-  ) {
+  function HexSlides({ snapshot, className, style, onReady, onChange }, ref) {
     const containerRef = useRef<HTMLDivElement>(null);
     const univerRef = useRef<Univer | null>(null);
-    const deckKeyRef = useRef(0);
-    const mountGenerationRef = useRef(0);
+    const onChangeRef = useRef(onChange);
+    onChangeRef.current = onChange;
 
     const getSnapshot = (): ISlideData | null => {
       const univer = univerRef.current;
@@ -77,24 +71,6 @@ export const HexSlides = forwardRef<HexSlidesApi, HexSlidesProps>(
         if (!snap) throw new Error("No slide deck loaded");
         return exportSlidesToPptx(snap);
       },
-      async importPptx(bytes, fileName = "deck.pptx") {
-        const next = await importPptxToSlides(bytes, fileName);
-        await loadFontsForSnapshot(next);
-        // Remount by bumping key via parent — for in-place, dispose + recreate unit
-        const univer = univerRef.current;
-        if (!univer || !containerRef.current) return;
-        const instances = univer.__getInjector().get(IUniverInstanceService);
-        const existing = instances.getCurrentUnitOfType(
-          UniverInstanceType.UNIVER_SLIDE,
-        );
-        if (existing) {
-          instances.disposeUnit(existing.getUnitId());
-        }
-        univer.createUnit<ISlideData, SlideDataModel>(
-          UniverInstanceType.UNIVER_SLIDE,
-          { ...next, id: `${next.id}-${++deckKeyRef.current}` },
-        );
-      },
     };
 
     useImperativeHandle(ref, () => api, []);
@@ -103,109 +79,127 @@ export const HexSlides = forwardRef<HexSlidesApi, HexSlidesProps>(
       const container = containerRef.current;
       if (!container) return;
 
-      let cancelled = false;
-      let univer: Univer | null = null;
-      const mountId = ++mountGenerationRef.current;
+      const univer = new Univer({
+        theme: defaultTheme,
+        locale: LocaleType.EN_US,
+        locales: LOCALES,
+        logLevel: LogLevel.WARN,
+      });
 
-      const scheduleDispose = (instance: Univer) => {
+      univer.registerPlugin(UniverRenderEnginePlugin);
+      univer.registerPlugin(UniverUIPlugin, {
+        container,
+        header: false,
+        toolbar: false,
+        footer: false,
+        headerMenu: false,
+        contextMenu: false,
+      });
+      univer.registerPlugin(UniverDocsPlugin);
+      univer.registerPlugin(UniverDocsUIPlugin);
+      univer.registerPlugin(UniverFormulaEnginePlugin);
+      univer.registerPlugin(UniverDocsHyperLinkPlugin);
+      univer.registerPlugin(UniverDocsHyperLinkUIPlugin);
+      univer.registerPlugin(UniverDrawingPlugin);
+      univer.registerPlugin(UniverSlidesPlugin);
+      univer.registerPlugin(UniverSlidesUIPlugin);
+
+      univer.createUnit<ISlideData, SlideDataModel>(
+        UniverInstanceType.UNIVER_SLIDE,
+        snapshot,
+      );
+
+      if (typeof window !== "undefined") {
+        const w = window as unknown as { univer?: Univer };
+        w.univer = univer;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (globalThis as any).__casualSlides__ICommandService = ICommandService;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (globalThis as any).__casualSlides__IUniverInstanceService =
+          IUniverInstanceService;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (globalThis as any).__casualSlides__IRenderManagerService =
+          IRenderManagerService;
+      }
+
+      univerRef.current = univer;
+
+      const cs = univer.__getInjector().get(ICommandService);
+      const mutationDisposer = cs.onMutationExecutedForCollab(() => {
+        onChangeRef.current?.();
+      });
+      const commandDisposer = cs.onCommandExecuted((info) => {
+        const id = info.id;
+        if (!id.startsWith("slide.")) return;
+        if (
+          id === "slide.operation.activate-slide" ||
+          id === "slide.operation.set-slide-page-thumb" ||
+          id.includes("text-edit")
+        ) {
+          return;
+        }
+        onChangeRef.current?.();
+      });
+
+      const renderManager = univer.__getInjector().get(IRenderManagerService);
+      const recenter = () => {
+        const instances = univer.__getInjector().get(IUniverInstanceService);
+        const unitId = instances
+          .getCurrentUnitOfType(UniverInstanceType.UNIVER_SLIDE)
+          ?.getUnitId();
+        if (!unitId) return;
+        const renderUnit = renderManager.getRenderById(unitId);
+        void import("@univerjs/slides-ui").then((mod) => {
+          try {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const SlideRenderController = (mod as any).SlideRenderController;
+            const ctrl = renderUnit?.with(SlideRenderController);
+            renderUnit?.engine?.resize();
+            ctrl?.scrollToCenter?.();
+          } catch {
+            /* renderUnit not ready yet */
+          }
+        });
+      };
+
+      const t1 = window.setTimeout(recenter, 80);
+      const t2 = window.setTimeout(recenter, 400);
+      const t3 = window.setTimeout(recenter, 1200);
+      const ro = new ResizeObserver(() => recenter());
+      ro.observe(container);
+
+      onReady?.(api);
+
+      return () => {
+        window.clearTimeout(t1);
+        window.clearTimeout(t2);
+        window.clearTimeout(t3);
+        ro.disconnect();
+        mutationDisposer?.dispose?.();
+        commandDisposer?.dispose?.();
+        if (typeof window !== "undefined") {
+          const w = window as unknown as { univer?: Univer };
+          if (w.univer === univer) w.univer = undefined;
+        }
+        univerRef.current = null;
+        // Defer dispose so React can finish the current render/unmount cycle.
+        const toDispose = univer;
         window.setTimeout(() => {
           try {
-            instance.dispose();
+            toDispose.dispose();
           } catch {
-            /* Univer may already be torn down */
+            /* already disposed */
           }
         }, 0);
       };
-
-      const boot = async () => {
-        try {
-          let initial = snapshot ?? {
-            ...DEFAULT_SLIDE_DATA,
-            id: `deck-${Date.now().toString(36)}`,
-          };
-          if (pptxBytes && pptxBytes.byteLength > 0) {
-            initial = await importPptxToSlides(
-              pptxBytes,
-              pptxFileName ?? "deck.pptx",
-            );
-            await loadFontsForSnapshot(initial);
-          }
-          if (
-            cancelled ||
-            mountId !== mountGenerationRef.current ||
-            !containerRef.current
-          ) {
-            return;
-          }
-
-          const instance = new Univer({
-            theme: defaultTheme,
-            locale: LocaleType.EN_US,
-            locales: LOCALES,
-            logLevel: LogLevel.WARN,
-          });
-
-          instance.registerPlugin(UniverRenderEnginePlugin);
-          instance.registerPlugin(UniverUIPlugin, {
-            container: containerRef.current,
-            header: false,
-            toolbar: true,
-            footer: false,
-            headerMenu: false,
-            contextMenu: true,
-          });
-          instance.registerPlugin(UniverDocsPlugin);
-          instance.registerPlugin(UniverDocsUIPlugin);
-          instance.registerPlugin(UniverFormulaEnginePlugin);
-          instance.registerPlugin(UniverDocsHyperLinkPlugin);
-          instance.registerPlugin(UniverDocsHyperLinkUIPlugin);
-          instance.registerPlugin(UniverDrawingPlugin);
-          instance.registerPlugin(UniverSlidesPlugin);
-          instance.registerPlugin(UniverSlidesUIPlugin);
-
-          instance.createUnit<ISlideData, SlideDataModel>(
-            UniverInstanceType.UNIVER_SLIDE,
-            initial,
-          );
-
-          if (
-            cancelled ||
-            mountId !== mountGenerationRef.current ||
-            !containerRef.current
-          ) {
-            scheduleDispose(instance);
-            return;
-          }
-
-          univer = instance;
-          univerRef.current = instance;
-          onReady?.(api);
-        } catch (error) {
-          console.error("[HexSlides] failed to boot Univer", error);
-          if (univer) {
-            scheduleDispose(univer);
-            univer = null;
-            univerRef.current = null;
-          }
-        }
-      };
-
-      void boot();
-
-      return () => {
-        cancelled = true;
-        const instance = univer ?? univerRef.current;
-        univerRef.current = null;
-        if (instance) scheduleDispose(instance);
-      };
-      // Mount once per pptx/snapshot identity — parent remounts via key.
+      // Parent remounts via key={snapshot.id}.
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     return (
       <div
         ref={containerRef}
-        className={className ?? "hex-slides-mount"}
+        className={className ?? "univer-mount"}
         style={{ width: "100%", height: "100%", minHeight: 0, ...style }}
       />
     );

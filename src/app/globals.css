@@ -162,6 +162,26 @@
   height: 100%;
 }
 
+.hex-slides-shell {
+  height: 100%;
+  color-scheme: light;
+  color: #1f2328;
+  --cs-bg: #f8f9fa;
+  --foreground: #1f2328;
+}
+
+.hex-slides-shell ::selection,
+.hex-slides-shell *::selection {
+  background: rgba(26, 115, 232, 0.35);
+  color: inherit;
+}
+
+.hex-slides-shell ::-moz-selection,
+.hex-slides-shell *::-moz-selection {
+  background: rgba(26, 115, 232, 0.35);
+  color: inherit;
+}
+
 .hex-editor ::selection,
 .hex-editor *::selection {
   background: var(--hex-selection);

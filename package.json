@@ -119,6 +119,9 @@
         "y-prosemirror",
         "y-websocket"
       ]
+    },
+    "patchedDependencies": {
+      "@univerjs/slides-ui@0.25.0": "patches/@univerjs__slides-ui@0.25.0.patch"
     }
   }
 }

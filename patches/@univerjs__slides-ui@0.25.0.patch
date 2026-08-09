@@ -1,0 +1,161 @@
+diff --git a/lib/cjs/index.js b/lib/cjs/index.js
+index d7c2863fc712d812733c0c265d43ed57fc397988..f57ccd23b110455da655474e325093df775c5488 100644
+--- a/lib/cjs/index.js
++++ b/lib/cjs/index.js
+@@ -136,7 +136,7 @@ let SlideRenderController = class SlideRenderController extends _univerjs_core.R
+ 			scene.render();
+ 		});
+ 	}
+-	_scrollToCenter() {
++	scrollToCenter() {
+ 		var _this$_currentRender;
+ 		const mainScene = (_this$_currentRender = this._currentRender()) === null || _this$_currentRender === void 0 ? void 0 : _this$_currentRender.scene;
+ 		const viewMain = mainScene === null || mainScene === void 0 ? void 0 : mainScene.getViewport(_univerjs_slides.SLIDE_KEY.VIEW);
+@@ -149,6 +149,9 @@ let SlideRenderController = class SlideRenderController extends _univerjs_core.R
+ 			y
+ 		});
+ 	}
++	_scrollToCenter() {
++		this.scrollToCenter();
++	}
+ 	_currentRender() {
+ 		return (0, _univerjs_engine_render.getCurrentTypeOfRenderer)(_univerjs_core.UniverInstanceType.UNIVER_SLIDE, this._univerInstanceService, this._renderManagerService);
+ 	}
+@@ -1390,7 +1393,15 @@ function SlideEditorContainer() {
+ 	const editorService = (0, _univerjs_ui.useDependency)(_univerjs_docs_ui.IEditorService);
+ 	const contextService = (0, _univerjs_ui.useDependency)(_univerjs_core.IContextService);
+ 	const disableAutoFocus = (0, _univerjs_ui.useObservable)(() => contextService.subscribeContextValue$(_univerjs_ui.DISABLE_AUTO_FOCUS_KEY), false, void 0, [contextService, _univerjs_ui.DISABLE_AUTO_FOCUS_KEY]);
+-	`${_univerjs_core.DEFAULT_EMPTY_DOCUMENT_VALUE}`, _univerjs_core.DocumentFlavor.UNSPECIFIED;
++	const snapshot = {
++		id: SLIDE_EDITOR_ID,
++		body: {
++			dataStream: `${_univerjs_core.DEFAULT_EMPTY_DOCUMENT_VALUE}`,
++			textRuns: [],
++			paragraphs: [{ startIndex: 0 }]
++		},
++		documentStyle: { documentFlavor: _univerjs_core.DocumentFlavor.UNSPECIFIED }
++	};
+ 	(0, react.useEffect)(() => {
+ 		slideEditorManagerService.state$.subscribe((param) => {
+ 			if (param == null) return;
+@@ -1425,7 +1436,14 @@ function SlideEditorContainer() {
+ 			top: state.top,
+ 			width: state.width,
+ 			height: state.height
+-		}
++		},
++		children: state.width > 0 ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_univerjs_docs_ui.RichTextEditor, {
++			editorId: SLIDE_EDITOR_ID,
++			initialValue: snapshot,
++			isSingle: false,
++			autoFocus: !disableAutoFocus,
++			style: { width: "100%", height: "100%" }
++		}) : null
+ 	});
+ }
+ 
+@@ -1880,6 +1898,9 @@ let SlideEditingRenderController = class SlideEditingRenderController extends _u
+ 			if (wrapStrategy === _univerjs_core.WrapStrategy.WRAP && angle === 0) documentModel.updateDocumentDataPageSize((endX - startX) / scaleX);
+ 			this._instanceSrv.changeDoc(editorUnitId, documentModel);
+ 			this._contextService.setContextValue(_univerjs_core.FOCUSING_EDITOR_BUT_HIDDEN, true);
++			this._contextService.setContextValue("FOCUSING_DOC", true);
++			this._contextService.setContextValue(_univerjs_core.FOCUSING_UNIVER_EDITOR, true);
++			this._contextService.setContextValue(_univerjs_core.EDITOR_ACTIVATED, true);
+ 			this._textSelectionManagerService.replaceTextRanges([{
+ 				startOffset: 0,
+ 				endOffset: 0
+@@ -2145,6 +2166,9 @@ let SlideEditingRenderController = class SlideEditingRenderController extends _u
+ 	}
+ 	_exitInput(param) {
+ 		this._contextService.setContextValue(_univerjs_core.EDITOR_ACTIVATED, false);
++		this._contextService.setContextValue("FOCUSING_DOC", false);
++		this._contextService.setContextValue(_univerjs_core.FOCUSING_UNIVER_EDITOR, false);
++		this._contextService.setContextValue(_univerjs_core.FOCUSING_EDITOR_BUT_HIDDEN, false);
+ 		this._cellEditorManagerService.setState({ show: param.visible });
+ 		const editorUnitId = this._editorBridgeService.getCurrentEditorId();
+ 		if (editorUnitId == null) return;
+diff --git a/lib/es/index.js b/lib/es/index.js
+index 389f1d8329d529b4290ff388f655fd0a251b2025..10a9fd3f74c859f689d800e0161b794de02defc1 100644
+--- a/lib/es/index.js
++++ b/lib/es/index.js
+@@ -7,7 +7,7 @@ import { Button, ColorPicker, Dropdown, InputNumber, borderClassName, borderTopC
+ import { AutofillDoubleIcon, BottomIcon, GraphIcon, MoreDownIcon, MoveDownIcon, MoveUpIcon, PaintBucketDoubleIcon, TextIcon, TopmostIcon } from "@univerjs/icons";
+ import { jsx, jsxs } from "react/jsx-runtime";
+ import { createRef, useCallback, useEffect, useMemo, useRef, useState } from "react";
+-import { DOCS_COMPONENT_MAIN_LAYER_INDEX, DOCS_VIEW_KEY, DeleteLeftCommand, DocSelectionRenderService, IEditorService, MoveCursorOperation, MoveSelectionOperation, VIEWPORT_KEY } from "@univerjs/docs-ui";
++import { DOCS_COMPONENT_MAIN_LAYER_INDEX, DOCS_VIEW_KEY, DeleteLeftCommand, DocSelectionRenderService, IEditorService, MoveCursorOperation, MoveSelectionOperation, RichTextEditor, VIEWPORT_KEY } from "@univerjs/docs-ui";
+ import { BehaviorSubject, Subject, filter, takeUntil } from "rxjs";
+ import { DocSelectionManagerService, DocSkeletonManagerService, RichTextEditingMutation } from "@univerjs/docs";
+ 
+@@ -135,7 +135,7 @@ let SlideRenderController = class SlideRenderController extends RxDisposable {
+ 			scene.render();
+ 		});
+ 	}
+-	_scrollToCenter() {
++	scrollToCenter() {
+ 		var _this$_currentRender;
+ 		const mainScene = (_this$_currentRender = this._currentRender()) === null || _this$_currentRender === void 0 ? void 0 : _this$_currentRender.scene;
+ 		const viewMain = mainScene === null || mainScene === void 0 ? void 0 : mainScene.getViewport(SLIDE_KEY.VIEW);
+@@ -148,6 +148,9 @@ let SlideRenderController = class SlideRenderController extends RxDisposable {
+ 			y
+ 		});
+ 	}
++	_scrollToCenter() {
++		this.scrollToCenter();
++	}
+ 	_currentRender() {
+ 		return getCurrentTypeOfRenderer(UniverInstanceType.UNIVER_SLIDE, this._univerInstanceService, this._renderManagerService);
+ 	}
+@@ -1389,7 +1392,15 @@ function SlideEditorContainer() {
+ 	const editorService = useDependency(IEditorService);
+ 	const contextService = useDependency(IContextService);
+ 	const disableAutoFocus = useObservable(() => contextService.subscribeContextValue$(DISABLE_AUTO_FOCUS_KEY), false, void 0, [contextService, DISABLE_AUTO_FOCUS_KEY]);
+-	`${DEFAULT_EMPTY_DOCUMENT_VALUE}`, DocumentFlavor.UNSPECIFIED;
++	const snapshot = {
++		id: SLIDE_EDITOR_ID,
++		body: {
++			dataStream: `${DEFAULT_EMPTY_DOCUMENT_VALUE}`,
++			textRuns: [],
++			paragraphs: [{ startIndex: 0 }]
++		},
++		documentStyle: { documentFlavor: DocumentFlavor.UNSPECIFIED }
++	};
+ 	useEffect(() => {
+ 		slideEditorManagerService.state$.subscribe((param) => {
+ 			if (param == null) return;
+@@ -1424,7 +1435,14 @@ function SlideEditorContainer() {
+ 			top: state.top,
+ 			width: state.width,
+ 			height: state.height
+-		}
++		},
++		children: state.width > 0 ? /* @__PURE__ */ jsx(RichTextEditor, {
++			editorId: SLIDE_EDITOR_ID,
++			initialValue: snapshot,
++			isSingle: false,
++			autoFocus: !disableAutoFocus,
++			style: { width: "100%", height: "100%" }
++		}) : null
+ 	});
+ }
+ 
+@@ -1879,6 +1897,9 @@ let SlideEditingRenderController = class SlideEditingRenderController extends Di
+ 			if (wrapStrategy === WrapStrategy.WRAP && angle === 0) documentModel.updateDocumentDataPageSize((endX - startX) / scaleX);
+ 			this._instanceSrv.changeDoc(editorUnitId, documentModel);
+ 			this._contextService.setContextValue(FOCUSING_EDITOR_BUT_HIDDEN, true);
++			this._contextService.setContextValue("FOCUSING_DOC", true);
++			this._contextService.setContextValue(FOCUSING_UNIVER_EDITOR, true);
++			this._contextService.setContextValue(EDITOR_ACTIVATED, true);
+ 			this._textSelectionManagerService.replaceTextRanges([{
+ 				startOffset: 0,
+ 				endOffset: 0
+@@ -2144,6 +2165,9 @@ let SlideEditingRenderController = class SlideEditingRenderController extends Di
+ 	}
+ 	_exitInput(param) {
+ 		this._contextService.setContextValue(EDITOR_ACTIVATED, false);
++		this._contextService.setContextValue("FOCUSING_DOC", false);
++		this._contextService.setContextValue(FOCUSING_UNIVER_EDITOR, false);
++		this._contextService.setContextValue(FOCUSING_EDITOR_BUT_HIDDEN, false);
+ 		this._cellEditorManagerService.setState({ show: param.visible });
+ 		const editorUnitId = this._editorBridgeService.getCurrentEditorId();
+ 		if (editorUnitId == null) return;
