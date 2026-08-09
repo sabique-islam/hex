@@ -49,6 +49,14 @@ yarn-error.log*
 # vercel
 .vercel
 
+# presenton runtime (vendored under suite/presenton)
+suite/presenton/app_data/
+suite/presenton/presentation-export/
+suite/presenton/servers/nextjs/node_modules/
+suite/presenton/servers/nextjs/.next/
+suite/presenton/servers/fastapi/.venv/
+suite/presenton/node_modules/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

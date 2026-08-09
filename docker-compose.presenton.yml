@@ -1,0 +1,33 @@
+# Presenton sidecar for Hex AI presentation generation.
+# Usage:
+#   cp .env.example .env.local   # set OPENAI_API_KEY, etc.
+#   pnpm presenton:up
+#   PRESENTON_BASE_URL=http://localhost:5001 pnpm dev
+
+services:
+  presenton:
+    build:
+      context: ./suite/presenton
+      dockerfile: Dockerfile
+    ports:
+      - "${PRESENTON_HTTP_HOST_PORT:-5001}:80"
+    volumes:
+      - ./suite/presenton/app_data:/app_data
+      - ./suite/presenton/servers/fastapi/templates:/app/servers/fastapi/templates:ro
+    environment:
+      APP_DATA_DIRECTORY: /app_data
+      DISABLE_AUTH: ${PRESENTON_DISABLE_AUTH:-true}
+      CAN_CHANGE_KEYS: ${CAN_CHANGE_KEYS:-false}
+      LLM: ${LLM:-openai}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      GOOGLE_MODEL: ${GOOGLE_MODEL:-}
+      IMAGE_PROVIDER: ${IMAGE_PROVIDER:-pexels}
+      PEXELS_API_KEY: ${PEXELS_API_KEY:-}
+      PIXABAY_API_KEY: ${PIXABAY_API_KEY:-}
+      NEXT_PUBLIC_URL: http://localhost:${PRESENTON_HTTP_HOST_PORT:-5001}
+      PUPPETEER_EXECUTABLE_PATH: /usr/bin/chromium
+      MIGRATE_DATABASE_ON_STARTUP: "true"

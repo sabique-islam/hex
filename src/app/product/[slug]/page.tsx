@@ -11,7 +11,7 @@ import { getProduct, isProductSlug } from "@/lib/products";
 import { Button } from "@/components/ui/button";
 
 function ProductDetailActions({ kind }: { kind: "docs" | "sheets" | "slides" | "pdf" }) {
-  const { getStarted, createNew } = useLandingActions();
+  const { getStarted, createNew, generateSlides } = useLandingActions();
   return (
     <div className="mt-8 flex flex-wrap gap-3">
       <Button
@@ -22,6 +22,15 @@ function ProductDetailActions({ kind }: { kind: "docs" | "sheets" | "slides" | "
       >
         Open file
       </Button>
+      {kind === "slides" ? (
+        <Button
+          type="button"
+          onClick={generateSlides}
+          className="h-[50px] rounded-[9px] px-6 text-[15px] font-semibold"
+        >
+          Design with AI
+        </Button>
+      ) : null}
       <Button
         type="button"
         size="lg"

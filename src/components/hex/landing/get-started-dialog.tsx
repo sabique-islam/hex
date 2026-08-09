@@ -30,11 +30,13 @@ export function GetStartedDialog({
   onClose,
   onOpenFile,
   onCreateNew,
+  onGenerateSlides,
 }: {
   open: boolean;
   onClose: () => void;
   onOpenFile: () => void;
   onCreateNew: (kind: EditorKind) => void;
+  onGenerateSlides?: () => void;
 }) {
   return (
     <Dialog
@@ -65,6 +67,19 @@ export function GetStartedDialog({
               DOCX | XLSX | PPTX | PDF
             </span>
           </Button>
+
+          {onGenerateSlides ? (
+            <Button
+              type="button"
+              onClick={onGenerateSlides}
+              className="h-auto w-full justify-between rounded-[9px] px-4 py-3 text-[15px] font-medium"
+            >
+              <span>Design a presentation</span>
+              <span className="text-[13px] font-normal text-primary-foreground/80">
+                AI · templates
+              </span>
+            </Button>
+          ) : null}
 
           <div>
             <Label className="mb-3 text-[13px] uppercase tracking-[0.08em] text-muted-foreground">

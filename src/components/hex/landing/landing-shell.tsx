@@ -22,6 +22,7 @@ import { newFileId, putFile } from "@/lib/storage";
 const LandingActionsContext = createContext<{
   getStarted: () => void;
   createNew: (kind?: EditorKind) => Promise<void>;
+  generateSlides: () => void;
 } | null>(null);
 
 export function useLandingActions() {
@@ -97,8 +98,15 @@ export function LandingShell({ children }: { children: ReactNode }) {
     fileInputRef.current?.click();
   }, []);
 
+  const generateSlides = useCallback(() => {
+    setGetStartedOpen(false);
+    router.push("/create/presentation");
+  }, [router]);
+
   return (
-    <LandingActionsContext.Provider value={{ getStarted, createNew }}>
+    <LandingActionsContext.Provider
+      value={{ getStarted, createNew, generateSlides }}
+    >
       <div className="hex-landing min-h-[100dvh] pb-24">
         <LandingNav onGetStarted={getStarted} />
         {children}
@@ -107,6 +115,7 @@ export function LandingShell({ children }: { children: ReactNode }) {
           onClose={() => setGetStartedOpen(false)}
           onOpenFile={openFilePicker}
           onCreateNew={(kind) => void createNew(kind)}
+          onGenerateSlides={generateSlides}
         />
         <input
           ref={fileInputRef}

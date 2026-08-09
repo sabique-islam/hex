@@ -42,7 +42,7 @@ export const PRODUCT_ITEMS: ProductItem[] = [
     kind: "slides",
     body: [
       "Import PPTX decks, edit slides in place, and export updated presentations.",
-      "Build new decks from a blank template when you need a fast starting point.",
+      "Generate new decks from a prompt with Presenton AI, then edit them in Hex.",
     ],
   },
   {
