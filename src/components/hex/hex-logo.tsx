@@ -46,18 +46,20 @@ export function HexMarkLink({
   className?: string;
 }) {
   return (
-    <Link
-      href="/"
+    <Button
+      variant="ghost"
       className={cn(
-        "inline-flex items-center gap-2 transition-opacity hover:opacity-80",
+        "h-auto gap-2 px-0 font-heading text-lg font-semibold tracking-tight hover:bg-transparent",
         className,
       )}
+      nativeButton={false}
+      render={
+        <Link href="/" className="inline-flex items-center gap-2" />
+      }
     >
       <HexLogo size={size} alt="" />
-      <span className="font-heading text-lg font-semibold tracking-tight">
-        Hex
-      </span>
-    </Link>
+      <span>Hex</span>
+    </Button>
   );
 }
 

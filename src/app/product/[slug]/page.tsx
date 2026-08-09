@@ -8,25 +8,28 @@ import {
   useLandingActions,
 } from "@/components/hex/landing/landing-shell";
 import { getProduct, isProductSlug } from "@/lib/products";
+import { Button } from "@/components/ui/button";
 
 function ProductDetailActions({ kind }: { kind: "docs" | "sheets" | "slides" | "pdf" }) {
   const { getStarted, createNew } = useLandingActions();
   return (
     <div className="mt-8 flex flex-wrap gap-3">
-      <button
+      <Button
         type="button"
+        variant="outline"
         onClick={getStarted}
-        className="hex-landing-btn-outline inline-flex h-[50px] items-center justify-center rounded-[9px] px-6 text-[15px] font-medium transition-colors"
+        className="h-[50px] rounded-[9px] px-6 text-[15px] font-medium"
       >
         Open file
-      </button>
-      <button
+      </Button>
+      <Button
         type="button"
+        size="lg"
         onClick={() => void createNew(kind)}
-        className="hex-landing-btn-accent inline-flex h-[50px] items-center justify-center rounded-[9px] px-6 text-[15px] font-semibold transition-opacity hover:opacity-90"
+        className="h-[50px] rounded-[9px] px-6 text-[15px] font-semibold"
       >
         New {kind === "docs" ? "document" : kind === "sheets" ? "spreadsheet" : kind === "slides" ? "presentation" : "PDF"}
-      </button>
+      </Button>
     </div>
   );
 }
@@ -47,9 +50,14 @@ export default function ProductDetailPage() {
           <p key={paragraph}>{paragraph}</p>
         ))}
         <p>
-          <Link href="/product" className="underline underline-offset-2">
+          <Button
+            variant="link"
+            className="h-auto p-0 text-muted-foreground"
+            nativeButton={false}
+            render={<Link href="/product" />}
+          >
             View all products
-          </Link>
+          </Button>
         </p>
         <ProductDetailActions kind={product.kind} />
       </MarketingPage>

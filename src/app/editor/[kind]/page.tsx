@@ -1,8 +1,10 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { Suspense } from "react";
+import { Button } from "@/components/ui/button";
 import { isEditorKind } from "@/lib/kinds";
 
 const DocsEditor = dynamic(
@@ -40,9 +42,9 @@ function EditorBody() {
     return (
       <div className="flex h-dvh flex-col items-center justify-center gap-3 text-sm">
         <p>Missing file id.</p>
-        <a href="/" className="underline">
+        <Button variant="link" nativeButton={false} render={<Link href="/" />}>
           Back to Hex
-        </a>
+        </Button>
       </div>
     );
   }
@@ -51,9 +53,9 @@ function EditorBody() {
     return (
       <div className="flex h-dvh flex-col items-center justify-center gap-3 text-sm">
         <p>Unknown editor kind.</p>
-        <a href="/" className="underline">
+        <Button variant="link" nativeButton={false} render={<Link href="/" />}>
           Back to Hex
-        </a>
+        </Button>
       </div>
     );
   }

@@ -5,6 +5,8 @@ import {
   LandingShell,
   useLandingActions,
 } from "@/components/hex/landing/landing-shell";
+import { Button } from "@/components/ui/button";
+import { Card, CardDescription, CardTitle } from "@/components/ui/card";
 
 const TEMPLATES = [
   { label: "Blank document", kind: "docs" as const },
@@ -19,16 +21,20 @@ function TemplateList() {
     <ul className="mt-8 space-y-3">
       {TEMPLATES.map(({ label, kind }) => (
         <li key={kind}>
-          <button
-            type="button"
-            onClick={() => void createNew(kind)}
-            className="hex-landing-card flex w-full items-center justify-between rounded-[9px] px-4 py-3 text-left text-[15px] font-medium text-[var(--landing-fg)] transition-colors"
+          <Card
+            size="sm"
+            className="rounded-[9px] py-0 transition-colors hover:bg-accent"
           >
-            <span>{label}</span>
-            <span className="text-[13px] font-normal text-[var(--landing-muted)]">
-              New
-            </span>
-          </button>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => void createNew(kind)}
+              className="h-auto w-full justify-between rounded-[9px] px-4 py-3 text-[15px] font-medium hover:bg-transparent"
+            >
+              <CardTitle className="text-[15px] font-medium">{label}</CardTitle>
+              <CardDescription className="text-[13px]">New</CardDescription>
+            </Button>
+          </Card>
         </li>
       ))}
     </ul>

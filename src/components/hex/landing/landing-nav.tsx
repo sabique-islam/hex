@@ -1,5 +1,12 @@
 import Link from "next/link";
 import { HexLogo } from "@/components/hex/hex-logo";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { PRODUCT_ITEMS } from "@/lib/products";
 import { cn } from "@/lib/utils";
 
@@ -14,7 +21,7 @@ function ChevronDown({ className }: { className?: string }) {
     <svg
       viewBox="0 0 12 12"
       fill="none"
-      className={cn("size-3.5 text-[var(--landing-nav-subtle)]", className)}
+      className={cn("size-3.5 opacity-70", className)}
       aria-hidden
     >
       <path
@@ -30,68 +37,73 @@ function ChevronDown({ className }: { className?: string }) {
 
 function ProductMenu() {
   return (
-    <div className="hex-product-menu group relative">
-      <Link
-        href="/product"
-        className="hex-landing-nav-link inline-flex items-center gap-1 text-[17px] font-medium"
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        className="inline-flex items-center gap-1 text-[17px] font-medium text-muted-foreground hover:text-foreground"
       >
         Product
-        <ChevronDown className="transition-transform group-hover:rotate-180" />
-      </Link>
-
-      <div className="hex-product-menu-panel pointer-events-none absolute left-0 top-full z-50 pt-3 opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
-        <div className="min-w-[280px] rounded-[12px] border border-[var(--landing-border)] bg-[var(--landing-surface)] py-2">
-          {PRODUCT_ITEMS.map((item) => (
-            <Link
-              key={item.slug}
-              href={item.href}
-              className="block px-4 py-3 transition-colors hover:bg-[var(--landing-surface-hover)]"
-            >
-              <span className="hex-landing-nav-dropdown-title block text-[15px] font-medium">
+        <ChevronDown />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent className="min-w-[280px] rounded-[12px] p-2">
+        {PRODUCT_ITEMS.map((item) => (
+          <DropdownMenuItem
+            key={item.slug}
+            className="h-auto rounded-[9px] px-3 py-3"
+            render={<Link href={item.href} />}
+          >
+            <div className="flex flex-col gap-0.5">
+              <span className="text-[15px] font-medium text-foreground">
                 {item.label}
               </span>
-              <span className="hex-landing-nav-dropdown-desc mt-0.5 block text-[13px] leading-snug">
+              <span className="text-[13px] leading-snug text-muted-foreground">
                 {item.description}
               </span>
-            </Link>
-          ))}
-        </div>
-      </div>
-    </div>
+            </div>
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
 export function LandingNav({ onGetStarted }: { onGetStarted: () => void }) {
   return (
     <header className="mx-auto flex w-full max-w-[1430px] items-center justify-between px-6 pt-10 sm:px-8 lg:px-10">
-      <Link
-        href="/"
-        className="hex-landing-nav-brand inline-flex items-center gap-2.5 text-[17px] font-semibold tracking-tight"
+      <Button
+        variant="ghost"
+        className="h-auto gap-2.5 px-0 text-[17px] font-semibold tracking-tight hover:bg-transparent"
+        nativeButton={false}
+        render={
+          <Link href="/" className="inline-flex items-center gap-2.5" />
+        }
       >
         <HexLogo size={22} alt="" />
         Hex
-      </Link>
+      </Button>
 
-      <nav className="hidden items-center gap-8 lg:flex xl:gap-10">
+      <nav className="hidden items-center gap-2 lg:flex xl:gap-3">
         <ProductMenu />
         {NAV.map(({ label, href }) => (
-          <Link
+          <Button
             key={href}
-            href={href}
-            className="hex-landing-nav-link text-[17px] font-medium"
+            variant="ghost"
+            className="h-auto px-3 text-[17px] font-medium text-muted-foreground hover:bg-transparent hover:text-foreground"
+            nativeButton={false}
+            render={<Link href={href} />}
           >
             {label}
-          </Link>
+          </Button>
         ))}
       </nav>
 
-      <button
+      <Button
         type="button"
+        variant="outline"
         onClick={onGetStarted}
-        className="hex-landing-btn-outline inline-flex h-10 min-w-[120px] items-center justify-center rounded-[9px] px-4 text-[14px] font-medium transition-colors sm:h-[52px] sm:min-w-[150px] sm:px-5 sm:text-[15px]"
+        className="h-10 min-w-[120px] rounded-[9px] text-[14px] sm:h-[52px] sm:min-w-[150px] sm:px-5 sm:text-[15px]"
       >
         Get started
-      </button>
+      </Button>
     </header>
   );
 }

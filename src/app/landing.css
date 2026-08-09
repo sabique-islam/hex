@@ -13,10 +13,26 @@
   --landing-illustration-stroke: #252525;
   --landing-illustration-subtle: #151515;
   --landing-illustration-dot: #333333;
-  --landing-nav-brand: #e8e8e8;
-  --landing-nav-link: #9a9a9a;
-  --landing-nav-link-hover: #d1d1d1;
-  --landing-nav-subtle: #787878;
+
+  /* Map landing palette onto shadcn tokens inside marketing pages */
+  --background: var(--landing-bg);
+  --foreground: var(--landing-fg);
+  --card: var(--landing-surface);
+  --card-foreground: var(--landing-fg);
+  --popover: var(--landing-surface);
+  --popover-foreground: var(--landing-fg);
+  --primary: var(--landing-accent);
+  --primary-foreground: var(--landing-accent-fg);
+  --secondary: var(--landing-surface);
+  --secondary-foreground: var(--landing-fg);
+  --muted: var(--landing-surface-hover);
+  --muted-foreground: var(--landing-muted);
+  --accent: var(--landing-surface-hover);
+  --accent-foreground: var(--landing-fg);
+  --border: var(--landing-border);
+  --input: var(--landing-surface);
+  --ring: var(--landing-border);
+
   position: relative;
   z-index: 1;
   background: var(--landing-bg);
@@ -43,75 +59,8 @@ html:has(.hex-landing) body {
   color: var(--landing-selection-fg);
 }
 
-.hex-landing a,
-.hex-landing button:not(:disabled) {
-  cursor: pointer;
-}
-
 .hex-logo {
   background: transparent !important;
-}
-
-.hex-landing-btn-outline {
-  border: 1px solid var(--landing-border);
-  background: var(--landing-surface);
-  color: var(--landing-nav-brand);
-}
-
-.hex-landing-btn-outline:hover {
-  background: var(--landing-surface-hover);
-  color: var(--landing-fg);
-}
-
-.hex-landing-nav-brand {
-  color: var(--landing-nav-brand);
-  transition: color 150ms ease;
-}
-
-.hex-landing-nav-brand:hover {
-  color: var(--landing-fg);
-}
-
-.hex-landing-nav-link {
-  color: var(--landing-nav-link);
-  transition: color 150ms ease;
-}
-
-.hex-landing-nav-link:hover,
-.hex-landing-nav-link:focus-visible {
-  color: var(--landing-nav-link-hover);
-}
-
-.hex-product-menu:hover > .hex-landing-nav-link,
-.hex-product-menu:focus-within > .hex-landing-nav-link {
-  color: var(--landing-nav-link-hover);
-}
-
-.hex-landing-nav-dropdown-title {
-  color: var(--landing-nav-brand);
-}
-
-.hex-landing-nav-dropdown-desc {
-  color: var(--landing-nav-subtle);
-}
-
-.hex-product-menu-panel a:hover .hex-landing-nav-dropdown-title {
-  color: var(--landing-nav-link-hover);
-}
-
-.hex-landing-btn-accent {
-  border: 1px solid var(--landing-border);
-  background: var(--landing-accent);
-  color: var(--landing-accent-fg);
-}
-
-.hex-landing-card {
-  border: 1px solid var(--landing-border);
-  background: var(--landing-surface);
-}
-
-.hex-landing-card:hover {
-  background: var(--landing-surface-hover);
 }
 
 .hex-headline-underline {
@@ -121,13 +70,4 @@ html:has(.hex-landing) body {
   width: min(240px, 72%);
   height: 12px;
   pointer-events: none;
-}
-
-.hex-product-menu-panel::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 0;
-  height: 12px;
 }

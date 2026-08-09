@@ -5,9 +5,11 @@ import {
   useCallback,
   useContext,
   useRef,
+  useState,
   type ReactNode,
 } from "react";
 import { useRouter } from "next/navigation";
+import { GetStartedDialog } from "@/components/hex/landing/get-started-dialog";
 import { LandingNav } from "@/components/hex/landing/landing-nav";
 import {
   ACCEPT_OPEN,
@@ -45,6 +47,7 @@ async function blankBytes(kind: EditorKind): Promise<ArrayBuffer> {
 export function LandingShell({ children }: { children: ReactNode }) {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [getStartedOpen, setGetStartedOpen] = useState(false);
 
   const openEditor = useCallback(
     (kind: EditorKind, id: string) => {
@@ -55,6 +58,7 @@ export function LandingShell({ children }: { children: ReactNode }) {
 
   const createNew = useCallback(
     async (kind: EditorKind = "docs") => {
+      setGetStartedOpen(false);
       const id = newFileId();
       const bytes = await blankBytes(kind);
       await putFile({
@@ -70,6 +74,7 @@ export function LandingShell({ children }: { children: ReactNode }) {
 
   const onPickFile = useCallback(
     async (file: File) => {
+      setGetStartedOpen(false);
       const kind = kindFromFilename(file.name);
       if (!kind) {
         alert("Unsupported file type. Use DOCX, XLSX/CSV/ODS, PPTX, or PDF.");
@@ -84,6 +89,11 @@ export function LandingShell({ children }: { children: ReactNode }) {
   );
 
   const getStarted = useCallback(() => {
+    setGetStartedOpen(true);
+  }, []);
+
+  const openFilePicker = useCallback(() => {
+    setGetStartedOpen(false);
     fileInputRef.current?.click();
   }, []);
 
@@ -92,6 +102,12 @@ export function LandingShell({ children }: { children: ReactNode }) {
       <div className="hex-landing min-h-[100dvh] pb-24">
         <LandingNav onGetStarted={getStarted} />
         {children}
+        <GetStartedDialog
+          open={getStartedOpen}
+          onClose={() => setGetStartedOpen(false)}
+          onOpenFile={openFilePicker}
+          onCreateNew={(kind) => void createNew(kind)}
+        />
         <input
           ref={fileInputRef}
           type="file"
