@@ -3,6 +3,7 @@ import { Geist_Mono, Newsreader, DM_Sans } from "next/font/google";
 import "./globals.css";
 import "./landing.css";
 import { cn } from "@/lib/utils";
+import { Analytics } from "@vercel/analytics/next"
 
 const display = Newsreader({
   subsets: ["latin"],
