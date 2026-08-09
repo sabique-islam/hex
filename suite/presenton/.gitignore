@@ -1,36 +1,21 @@
-.env
-.env.*
-*.env
-.venv
-__pycache__
-.pytest_cache
-.next
-node_modules
-out
-user_data
-app_data
-tmp
-debug
-.fastembed_cache
-.DS_Store
-
-generated_models
-nltk
-chroma
-container.db
-.next-build
-.cursor
-.vscode
-.agents
-skills-lock.json
-.DS_Store
-.codex
-eng.traineddata
-
-# presenton-export runtime (downloaded via scripts/sync-presentation-export.cjs or Docker build)
+# Runtime / local data (never commit)
+app_data/
 presentation-export/
-.cache/presentation-export/
-servers/fastapi/build/
-servers/fastapi/dist/
-servers/fastapi/fastembed_cache/
-servers/fastapi/*.egg-info/
+container.db
+
+# Node / Python build artifacts
+node_modules/
+**/node_modules/
+**/.next/
+**/.next-build/
+**/.venv/
+**/__pycache__/
+**/*.pyc
+**/.pytest_cache/
+
+# Dev tooling output
+**/.playwright-cli/
+**/cypress/
+**/fastembed_cache/
+**/chroma/
+.cache/
