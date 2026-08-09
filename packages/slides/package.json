@@ -1,0 +1,43 @@
+{
+  "name": "@hex/slides",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./styles": "./src/styles.ts"
+  },
+  "scripts": {
+    "build": "vite build",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@univerjs/core": "0.24.0",
+    "@univerjs/design": "0.24.0",
+    "@univerjs/docs": "0.24.0",
+    "@univerjs/docs-hyper-link": "0.24.0",
+    "@univerjs/docs-hyper-link-ui": "0.24.0",
+    "@univerjs/docs-ui": "0.24.0",
+    "@univerjs/drawing": "0.24.0",
+    "@univerjs/engine-formula": "0.24.0",
+    "@univerjs/engine-render": "0.24.0",
+    "@univerjs/slides": "0.24.0",
+    "@univerjs/slides-ui": "0.24.0",
+    "@univerjs/themes": "0.24.0",
+    "@univerjs/ui": "0.24.0",
+    "fast-xml-parser": "^5.8.0",
+    "jszip": "^3.10.1",
+    "pptxgenjs": "^4.0.1"
+  },
+  "peerDependencies": {
+    "react": ">=18",
+    "react-dom": ">=18"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.11"
+  }
+}
