@@ -5,6 +5,68 @@ import webpack from "webpack";
 
 const require = createRequire(import.meta.url);
 
+const UNIVER_PACKAGES = [
+  "core",
+  "data-validation",
+  "design",
+  "docs",
+  "docs-hyper-link",
+  "docs-hyper-link-ui",
+  "docs-ui",
+  "drawing",
+  "drawing-ui",
+  "engine-formula",
+  "engine-render",
+  "find-replace",
+  "rpc",
+  "sheets",
+  "sheets-conditional-formatting",
+  "sheets-conditional-formatting-ui",
+  "sheets-data-validation",
+  "sheets-data-validation-ui",
+  "sheets-drawing",
+  "sheets-drawing-ui",
+  "sheets-filter",
+  "sheets-filter-ui",
+  "sheets-find-replace",
+  "sheets-formula",
+  "sheets-formula-ui",
+  "sheets-hyper-link",
+  "sheets-hyper-link-ui",
+  "sheets-note",
+  "sheets-note-ui",
+  "sheets-numfmt",
+  "sheets-numfmt-ui",
+  "sheets-sort",
+  "sheets-sort-ui",
+  "sheets-table",
+  "sheets-table-ui",
+  "sheets-thread-comment",
+  "sheets-thread-comment-ui",
+  "sheets-ui",
+  "slides",
+  "slides-ui",
+  "themes",
+  "thread-comment",
+  "thread-comment-ui",
+  "ui",
+] as const;
+
+/** Force one physical copy of each @univerjs package (redi breaks with duplicates). */
+function univerWebpackAliases(): Record<string, string> {
+  const aliases: Record<string, string> = {};
+  for (const name of UNIVER_PACKAGES) {
+    try {
+      aliases[`@univerjs/${name}`] = path.dirname(
+        require.resolve(`@univerjs/${name}/package.json`),
+      );
+    } catch {
+      /* optional peer — skip if not installed */
+    }
+  }
+  return aliases;
+}
+
 function resolveSchnsrwWasm(): string {
   try {
     const pkg = path.dirname(require.resolve("@schnsrw/core/package.json"));
@@ -18,6 +80,7 @@ function resolveSchnsrwWasm(): string {
 }
 
 const nextConfig: NextConfig = {
+  reactStrictMode: false,
   reactCompiler: true,
   // Suite SDKs ship as source / mixed React 18 types; webpack already validates the graph.
   typescript: {
@@ -42,6 +105,7 @@ const nextConfig: NextConfig = {
 
     config.resolve.alias = {
       ...config.resolve.alias,
+      ...univerWebpackAliases(),
       "s1engine_wasm_bg.wasm": resolveSchnsrwWasm(),
       "@univerjs/docs-mention-ui": path.resolve(
         __dirname,
