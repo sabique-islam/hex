@@ -11,7 +11,7 @@ from fastmcp.server.auth import AccessToken, TokenVerifier
 from fastmcp.server.dependencies import get_access_token, get_http_headers
 from fastmcp.server.providers.openapi import MCPType, RouteMap
 
-from utils.get_env import is_disable_auth_enabled, is_presenton_electron_desktop
+from utils.get_env import is_disable_auth_enabled
 from models.sql.access_token import AccessToken as DatabaseAccessToken
 from models.sql.user import User
 from services.database import async_session_maker
@@ -90,8 +90,7 @@ class PresentonTokenVerifier(TokenVerifier):
 
 
 def is_mcp_server_enabled() -> bool:
-    """MCP is only supported in server/Docker deployments, not the Electron app."""
-    return not is_presenton_electron_desktop()
+    return True
 
 
 def create_mcp_auth_provider() -> TokenVerifier | None:
@@ -153,10 +152,7 @@ async def attach_request_auth_header(request: httpx.Request) -> None:
 async def main():
     try:
         if not is_mcp_server_enabled():
-            print(
-                "INFO: MCP server is disabled in the Presenton Electron desktop app "
-                "(PRESENTON_ELECTRON=true)."
-            )
+            print("INFO: MCP server is disabled.")
             return
 
         print("DEBUG: MCP (OpenAPI) Server startup initiated")

@@ -13,19 +13,6 @@ Thanks for helping improve **Presenton — the open-source AI presentation gener
 
 ---
 
-# Current Contribution Scope
-
-The Electron application contains:
-
-- Desktop application
-- FastAPI backend
-- Next.js frontend
-- Local runtime integrations
-
-Contributions outside `electron/` may not be accepted at this time.
-
----
-
 # How to Contribute
 
 ### Bugs
@@ -51,65 +38,58 @@ Start a **GitHub Issue** or **Discussion** explaining:
 Example branch names:
 
 ```
-
 feature/add-template-support
 fix/export-pptx-error
 docs/update-readme
-
 ```
 
 ---
 
-# Development Setup (Electron)
+# Development Setup (Docker / Web)
+
+Presenton runs as a self-hosted web stack:
+
+- **FastAPI backend** in `servers/fastapi`
+- **Next.js frontend** in `servers/nextjs`
+- **Docker** via `Dockerfile`, `docker-compose.yml`, and `start.js`
 
 ### Prerequisites
 
-- Node.js (LTS)
-- npm
-- Python
-- `uv` (Python package manager)
+- Docker (recommended), or
+- Node.js 20+, Python 3.11, `uv`, and nginx for local `start.js`
 
-# Setup Environment
+### Quick start with Docker
 
-From the `electron` directory:
-
-```
-cd electron
-npm run setup:env
+```bash
+docker compose up production
 ```
 
-This installs:
+Open http://localhost:5001 after the container is healthy.
 
-- Node dependencies
-- FastAPI dependencies
-- Next.js dependencies
+### Repository tests
 
----
-
-# Run the Electron App (Development)
-
+```bash
+npm test
+npm run sync:presentation-export
+npm run check:presentation-export
 ```
 
-npm run dev
+FastAPI tests:
 
+```bash
+cd servers/fastapi
+uv sync --locked --dev
+uv run python -m pytest
 ```
 
-This will:
+Next.js tests:
 
-- compile TypeScript
-- start the Electron app
-- run the backend and UI locally
-
----
-
-# Build the Electron App
-
-To build all components:
-
-```
-
-npm run build:all
-
+```bash
+cd servers/nextjs
+npm ci
+npm test
+npm run lint
+npm run build
 ```
 
 ---
@@ -120,14 +100,11 @@ npm run build:all
 
 Pull requests must have the Contributor License Agreement (CLA) signed before
 they can be accepted. Pull requests that remain open for more than 30 days
-without a signed CLA may be discarded and closed. Please complete the CLA
-prompt as soon as you open a pull request and update the pull request after
-signing so maintainers can verify it.
+without a signed CLA may be discarded and closed.
 
 Please ensure:
 
-- Changes are **inside `electron/`**
-- Code runs locally on development as well as build environment both
+- Code runs locally in Docker or the documented dev stack
 - PRs are **small and focused**
 - You explain **what and why**
 
@@ -152,10 +129,8 @@ Please mention:
 Look for issues labeled:
 
 ```
-
 good first issue
 help wanted
-
 ```
 
 ---
@@ -174,12 +149,9 @@ https://discord.gg/9ZsKKxudNE
 Please follow our community guidelines:
 
 ```
-
 CODE_OF_CONDUCT.md
-
 ```
 
 ---
 
 Thanks for helping make **Presenton better for everyone.**
-```

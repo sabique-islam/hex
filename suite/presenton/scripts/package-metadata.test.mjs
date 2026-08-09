@@ -14,43 +14,34 @@ async function readJson(relativePath) {
 }
 
 test("application versions stay aligned", async () => {
-  const [rootPackage, rootLock, electronPackage, electronLock] =
-    await Promise.all([
-      readJson("package.json"),
-      readJson("package-lock.json"),
-      readJson("electron/package.json"),
-      readJson("electron/package-lock.json"),
-    ]);
+  const [rootPackage, rootLock] = await Promise.all([
+    readJson("package.json"),
+    readJson("package-lock.json"),
+  ]);
 
-  assert.equal(rootPackage.version, "0.9.2-beta");
-  assert.equal(electronPackage.version, rootPackage.version);
+  assert.equal(rootPackage.version, "0.9.3-beta");
   assert.equal(rootLock.version, rootPackage.version);
   assert.equal(rootLock.packages[""].version, rootPackage.version);
-  assert.equal(electronLock.version, electronPackage.version);
-  assert.equal(electronLock.packages[""].version, electronPackage.version);
 });
 
-test("Docker and Electron use the same pinned presentation export", async () => {
-  const [rootPackage, electronPackage, dockerfile, dockerfileDev] =
-    await Promise.all([
-      readJson("package.json"),
-      readJson("electron/package.json"),
-      readFile(path.join(repoRoot, "Dockerfile"), "utf8"),
-      readFile(path.join(repoRoot, "Dockerfile.dev"), "utf8"),
-    ]);
+test("Docker images use the pinned presentation export runtime", async () => {
+  const [rootPackage, dockerfile, dockerfileDev] = await Promise.all([
+    readJson("package.json"),
+    readFile(path.join(repoRoot, "Dockerfile"), "utf8"),
+    readFile(path.join(repoRoot, "Dockerfile.dev"), "utf8"),
+  ]);
 
-  assert.equal(
-    electronPackage.exportVersion,
-    rootPackage.presentationExportVersion,
-  );
+  assert.equal(rootPackage.presentationExportVersion, "v0.4.2");
   assert.match(dockerfile, /COPY package\.json \/app\//);
+  assert.match(dockerfile, /sync-presentation-export\.cjs --force/);
   assert.match(
     dockerfile,
-    /sync-presentation-export\.cjs --force/,
+    /resources\/document-extraction\/liteparse_runner\.mjs/,
   );
   assert.match(dockerfileDev, /COPY package\.json package-lock\.json \/app\//);
+  assert.match(dockerfileDev, /sync-presentation-export\.cjs --force/);
   assert.match(
     dockerfileDev,
-    /sync-presentation-export\.cjs --force/,
+    /resources\/document-extraction\/liteparse_runner\.mjs/,
   );
 });

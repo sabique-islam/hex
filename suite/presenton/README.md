@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="https://presenton.ai/download"><strong>Quickstart</strong></a> &middot;
+  <a href="https://docs.presenton.ai/v3/get-started/quickstart"><strong>Quickstart</strong></a> &middot;
   <a href="https://presenton.ai/explore"><strong>Templates</strong></a> &middot;
   <a href="https://docs.presenton.ai/"><strong>Docs</strong></a> &middot;
   <a href="https://www.youtube.com/@presentonai"><strong>Youtube</strong></a> &middot;
@@ -13,7 +13,7 @@
 <p align="center">
   <a href="https://github.com/presenton/presenton/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-blue?style=flat" alt="Apache2.0" /></a>
   <a href="https://github.com/presenton/presenton"><img src="https://img.shields.io/github/stars/presenton/presenton?style=flat" alt="Stars" /></a>
-  <a href="https://presenton.ai/"><img src="https://img.shields.io/badge/Platform-Docker%20%7C%20Windows%20%7C%20macOS%20%7C%20Linux-lightgrey?style=flat" alt="Platform" /></a>
+  <a href="https://presenton.ai/"><img src="https://img.shields.io/badge/Platform-Docker%20%7C%20Self--Hosted-lightgrey?style=flat" alt="Platform" /></a>
 </p>
 
 <p align="center">
@@ -33,7 +33,6 @@ No SaaS lock-in · No forced subscriptions · Full control over models and data
 What makes Presenton different?
 
 - Use Fully **self-hosted** in Web through [Docker Package](https://docs.presenton.ai/v3/get-started/quickstart)
-- Or Download [Desktop App](https://presenton.ai/download) (Mac, Windows & Linux)
 - Works with Ollama, LM Studio, OpenAI, Gemini, Vertex AI, Azure OpenAI, Amazon Bedrock, Fireworks, Together AI, Anthropic, or any other OpenAI compatible providers
 - Comes with AI Presentation Generation API
 - Fully open-source (Apache 2.0)
@@ -152,50 +151,6 @@ Browse in-built AI presentation templates for pitch decks, business reports, exe
 
 #
 
-### 💻 Presenton Desktop
-
-Create AI-powered presentations using your own model provider (BYOK) or run everything locally on your own machine for full control and data privacy.
-
-<p align="center">
-  <a href="https://presenton.ai/download">
-    <img src="./readme_assets/images/banner.png" alt="Cloud deployment" />
-  </a>
-</p>
-
-**Available Platforms**
-
-<table>
-<tr>
-<th align="left">Platform</th>
-<th align="left">Architecture</th>
-<th align="left">Package</th>
-<th align="left">Download</th>
-</tr>
-
-<tr>
-<td><b>macOS</b></td>
-<td>Apple Silicon / Intel</td>
-<td><code>.dmg</code></td>
-<td><a href="https://presenton.ai/download">Download ↗</a></td>
-</tr>
-
-<tr>
-<td><b>Windows</b></td>
-<td>x64</td>
-<td><code>.exe</code></td>
-<td><a href="https://presenton.ai/download">Download ↗</a></td>
-</tr>
-
-<tr>
-<td><b>Linux</b></td>
-<td>x64</td>
-<td> <code>.deb</code></td>
-<td><a href="https://presenton.ai/download">Download ↗</a></td>
-</tr>
-
-</table>
-
-
 **Deploy to Cloud Providers**
 
 <div style="display:flex; gap:12px; align-items:center;">
@@ -235,7 +190,6 @@ Presenton gives you complete control over your AI presentation workflow. Choose 
 - Multi-User Workspaces — Give each user a private workspace and manage accounts from a built-in admin panel
 - Fully Open-Source — Apache 2.0 licensed, inspect, modify, and contribute
 - Docker Ready — One-command deployment with GPU support for local models
-- Electron Desktop App — Run Presenton as a native desktop application on Windows, macOS, and Linux (no browser required)
 - Sign in with ChatGPT — Use your free or paid ChatGPT account to sign in and start creating presentations instantly — no separate API key required
 
 #
@@ -254,57 +208,9 @@ Run Presenton directly in your browser — no installation, no setup required. S
 
 ### ⚡ Running Presenton
 
-  <p>
-    You can run Presenton in two ways:
-    <strong>Docker</strong> for a one-command setup without installing a local dev
-    stack, or the <strong>Electron desktop app</strong> for a native app
-    experience (ideal for development or offline use).
-  </p>
+Run Presenton with **Docker** for a one-command setup without installing a local dev stack.
 
-**Option 1: Electron (Desktop App)**
-
-   <p>
-    Run Presenton as a native desktop application. LLM and image provider
-    (API keys, etc.) can be configured in the app. The same environment variables
-    used for Docker apply when running the bundled backend.
-  </p>
-
-  <p>
-    <strong>Prerequisites:</strong> Node.js (LTS), npm, Python 3.11, and
-    <a href="https://docs.astral.sh/uv/">uv</a>
-    (for the shared FastAPI backend in <code>servers/fastapi</code>).
-  </p>
-
-- Setup (First Time)
-  <pre><code class="language-bash">cd electron
-  npm run setup:env</code></pre>
-
-  This installs Node dependencies, runs <code>uv sync</code> in the FastAPI
-  server, and installs Next.js dependencies.
-
-- Run in Development
-  <pre><code class="language-bash">npm run dev</code></pre>
-  <p>
-  This compiles TypeScript and starts Electron. The backend and UI run locally
-  inside the desktop window.
-  </p>
-
-- Build Distributable (Optional)
-  To create installers for Windows, macOS, or Linux:
-  <pre><code class="language-bash">npm run build:all
-  npm run dist</code></pre>
-  <p>
-  Output files are written to <code>electron/dist</code>
-  (or as configured in your <code>electron-builder</code> settings).
-  </p>
-  <p>
-  For a public macOS DMG outside the Mac App Store, use
-  <code>APPLE_KEYCHAIN_PROFILE="presenton-notary" npm run build:all:mac:signed</code>
-  from <code>electron/</code> after the one-time Developer ID and notarization
-  setup in <code>docs/macos/dev/direct-distribution.md</code>.
-  </p>
-
-**Option 2: Docker**
+**Docker**
 
 - Start Presenton
   Linux/MacOS (Bash/Zsh Shell):
@@ -556,7 +462,6 @@ Notes:
 - Access keys authenticate API/MCP requests only; they cannot sign in to the
   Presenton browser UI.
 - Revoking the key from the admin panel takes effect immediately.
-- MCP is not available in the Electron desktop app (`PRESENTON_ELECTRON=true`). Electron runs with `DISABLE_AUTH=true` by default, and the MCP server is disabled there to avoid auth conflicts.
 
 > Note: LLM and image variables above are forwarded from **`docker-compose.yml`** when set in `.env`.
 
