@@ -13,7 +13,7 @@
  * them to user space per page using the MediaBox.
  */
 import init, { redact_pdf_wasm } from './wasm/casual_pdf_core.js';
-import wasmUrl from './wasm/casual_pdf_core_bg.wasm?url';
+import wasmUrl from './wasm/casual_pdf_core_bg.wasm';
 
 let ready: Promise<unknown> | null = null;
 function ensureInit(): Promise<unknown> {

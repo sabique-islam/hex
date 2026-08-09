@@ -13,7 +13,7 @@
  * in-policy.) The wasm is lazy-loaded on first use.
  */
 import init, { restrict_pdf_wasm } from './wasm/casual_pdf_core.js';
-import wasmUrl from './wasm/casual_pdf_core_bg.wasm?url';
+import wasmUrl from './wasm/casual_pdf_core_bg.wasm';
 
 let ready: Promise<unknown> | null = null;
 function ensureInit(): Promise<unknown> {

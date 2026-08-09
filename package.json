@@ -2,24 +2,86 @@
   "name": "hex",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "pnpm@10.26.1",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
+    "dev": "next dev --webpack",
+    "build": "next build --webpack",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "build:slides": "pnpm --filter @hex/slides build"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",
+    "@hex/docs": "workspace:*",
+    "@hex/pdf": "workspace:*",
+    "@hex/sheets": "workspace:*",
+    "@hex/slides": "workspace:*",
     "@hugeicons/core-free-icons": "^4.2.3",
-    "@hugeicons/react": "^1.1.9",
+    "@hugeicons/react": "^1.1.5",
+    "@univerjs/core": "0.25.0",
+    "@univerjs/data-validation": "0.25.0",
+    "@univerjs/design": "0.25.0",
+    "@univerjs/docs": "0.25.0",
+    "@univerjs/docs-ui": "0.25.0",
+    "@univerjs/drawing": "0.25.0",
+    "@univerjs/drawing-ui": "0.25.0",
+    "@univerjs/engine-formula": "0.25.0",
+    "@univerjs/engine-render": "0.25.0",
+    "@univerjs/find-replace": "0.25.0",
+    "@univerjs/rpc": "0.25.0",
+    "@univerjs/sheets": "0.25.0",
+    "@univerjs/sheets-conditional-formatting": "0.25.0",
+    "@univerjs/sheets-conditional-formatting-ui": "0.25.0",
+    "@univerjs/sheets-data-validation": "0.25.0",
+    "@univerjs/sheets-data-validation-ui": "0.25.0",
+    "@univerjs/sheets-drawing": "0.25.0",
+    "@univerjs/sheets-drawing-ui": "0.25.0",
+    "@univerjs/sheets-filter": "0.25.0",
+    "@univerjs/sheets-filter-ui": "0.25.0",
+    "@univerjs/sheets-find-replace": "0.25.0",
+    "@univerjs/sheets-formula": "0.25.0",
+    "@univerjs/sheets-formula-ui": "0.25.0",
+    "@univerjs/sheets-hyper-link": "0.25.0",
+    "@univerjs/sheets-hyper-link-ui": "0.25.0",
+    "@univerjs/sheets-note": "0.25.0",
+    "@univerjs/sheets-note-ui": "0.25.0",
+    "@univerjs/sheets-numfmt": "0.25.0",
+    "@univerjs/sheets-numfmt-ui": "0.25.0",
+    "@univerjs/sheets-sort": "0.25.0",
+    "@univerjs/sheets-sort-ui": "0.25.0",
+    "@univerjs/sheets-table": "0.25.0",
+    "@univerjs/sheets-table-ui": "0.25.0",
+    "@univerjs/sheets-thread-comment": "0.25.0",
+    "@univerjs/sheets-thread-comment-ui": "0.25.0",
+    "@univerjs/sheets-ui": "0.25.0",
+    "@univerjs/themes": "0.25.0",
+    "@univerjs/thread-comment": "0.25.0",
+    "@univerjs/thread-comment-ui": "0.25.0",
+    "@univerjs/ui": "0.25.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "next": "16.3.0",
+    "prosemirror-commands": "^1.7.1",
+    "prosemirror-dropcursor": "^1.8.2",
+    "prosemirror-history": "^1.4.1",
+    "prosemirror-keymap": "^1.2.3",
+    "prosemirror-model": "^1.25.1",
+    "prosemirror-state": "^1.4.3",
+    "prosemirror-tables": "^1.8.1",
+    "prosemirror-transform": "^1.10.4",
+    "prosemirror-view": "^1.40.1",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "shadcn": "^4.16.2",
     "tailwind-merge": "^3.6.0",
-    "tw-animate-css": "^1.4.0"
+    "tw-animate-css": "^1.4.0",
+    "webpack": "^5.109.2",
+    "y-prosemirror": "^1.3.7",
+    "y-websocket": "^3.1.0",
+    "yjs": "^13.6.27"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
@@ -31,5 +93,18 @@
     "eslint-config-next": "16.3.0",
     "tailwindcss": "^4",
     "typescript": "^5"
+  },
+  "pnpm": {
+    "peerDependencyRules": {
+      "allowedVersions": {
+        "react": "19",
+        "react-dom": "19"
+      },
+      "ignoreMissing": [
+        "@hocuspocus/provider",
+        "y-prosemirror",
+        "y-websocket"
+      ]
+    }
   }
 }

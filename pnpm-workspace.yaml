@@ -1,0 +1,5 @@
+packages:
+  - "."
+  - "packages/*"
+  - "packages/stubs/*"
+  - "suite/pdf/packages/pdf-sdk"

@@ -28,26 +28,26 @@
  * on demand from jsdelivr (OFL-1.1), so an edit to a document that actually uses
  * one of those keeps its real typeface. See GOOGLE_FAMILIES below.
  */
-import arimoUrl from './fonts/Arimo.ttf?url';
-import arimoBoldUrl from './fonts/Arimo-Bold.ttf?url';
-import arimoItalicUrl from './fonts/Arimo-Italic.ttf?url';
-import arimoBoldItalicUrl from './fonts/Arimo-BoldItalic.ttf?url';
-import carlitoUrl from './fonts/Carlito-Regular.ttf?url';
-import carlitoBoldUrl from './fonts/Carlito-Bold.ttf?url';
-import carlitoItalicUrl from './fonts/Carlito-Italic.ttf?url';
-import carlitoBoldItalicUrl from './fonts/Carlito-BoldItalic.ttf?url';
-import tinosUrl from './fonts/Tinos-Regular.ttf?url';
-import tinosBoldUrl from './fonts/Tinos-Bold.ttf?url';
-import tinosItalicUrl from './fonts/Tinos-Italic.ttf?url';
-import tinosBoldItalicUrl from './fonts/Tinos-BoldItalic.ttf?url';
-import cousineUrl from './fonts/Cousine-Regular.ttf?url';
-import cousineBoldUrl from './fonts/Cousine-Bold.ttf?url';
-import cousineItalicUrl from './fonts/Cousine-Italic.ttf?url';
-import cousineBoldItalicUrl from './fonts/Cousine-BoldItalic.ttf?url';
-import caladeaUrl from './fonts/Caladea-Regular.ttf?url';
-import caladeaBoldUrl from './fonts/Caladea-Bold.ttf?url';
-import caladeaItalicUrl from './fonts/Caladea-Italic.ttf?url';
-import caladeaBoldItalicUrl from './fonts/Caladea-BoldItalic.ttf?url';
+import arimoUrl from './fonts/Arimo.ttf';
+import arimoBoldUrl from './fonts/Arimo-Bold.ttf';
+import arimoItalicUrl from './fonts/Arimo-Italic.ttf';
+import arimoBoldItalicUrl from './fonts/Arimo-BoldItalic.ttf';
+import carlitoUrl from './fonts/Carlito-Regular.ttf';
+import carlitoBoldUrl from './fonts/Carlito-Bold.ttf';
+import carlitoItalicUrl from './fonts/Carlito-Italic.ttf';
+import carlitoBoldItalicUrl from './fonts/Carlito-BoldItalic.ttf';
+import tinosUrl from './fonts/Tinos-Regular.ttf';
+import tinosBoldUrl from './fonts/Tinos-Bold.ttf';
+import tinosItalicUrl from './fonts/Tinos-Italic.ttf';
+import tinosBoldItalicUrl from './fonts/Tinos-BoldItalic.ttf';
+import cousineUrl from './fonts/Cousine-Regular.ttf';
+import cousineBoldUrl from './fonts/Cousine-Bold.ttf';
+import cousineItalicUrl from './fonts/Cousine-Italic.ttf';
+import cousineBoldItalicUrl from './fonts/Cousine-BoldItalic.ttf';
+import caladeaUrl from './fonts/Caladea-Regular.ttf';
+import caladeaBoldUrl from './fonts/Caladea-Bold.ttf';
+import caladeaItalicUrl from './fonts/Caladea-Italic.ttf';
+import caladeaBoldItalicUrl from './fonts/Caladea-BoldItalic.ttf';
 
 export interface FontMatch {
   /** Hashed asset URL of the matched font (style already resolved). */

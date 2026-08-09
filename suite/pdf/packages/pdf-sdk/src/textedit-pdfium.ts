@@ -21,7 +21,7 @@ import { init } from '@embedpdf/pdfium';
 // Use the locally-bundled WASM asset so the browser can hit its HTTP cache
 // (the viewer already fetches this file during render-engine init). The ?url
 // Vite suffix emits the asset and returns its hashed public path.
-import pdfiumWasmUrl from '@embedpdf/pdfium/pdfium.wasm?url';
+import pdfiumWasmUrl from '@embedpdf/pdfium/pdfium.wasm';
 
 const FPDF_PAGEOBJ_TEXT = 1;
 // Full rewrite (not FPDF_INCREMENTAL): the edited text replaces the original in
