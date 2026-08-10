@@ -1,20 +1,20 @@
 "use client";
 
-import { LandingHero } from "@/components/hex/landing/landing-hero";
+import { LandingHome } from "@/components/hex/landing/landing-home";
 import {
   LandingShell,
   useLandingActions,
 } from "@/components/hex/landing/landing-shell";
 
-function HomeHero() {
+function HomePageContent() {
   const { getStarted } = useLandingActions();
-  return <LandingHero onGetStarted={getStarted} />;
+  return <LandingHome onGetStarted={getStarted} />;
 }
 
 export default function HomePage() {
   return (
     <LandingShell>
-      <HomeHero />
+      <HomePageContent />
     </LandingShell>
   );
 }

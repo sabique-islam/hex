@@ -11,6 +11,7 @@ import {
 import { useRouter } from "next/navigation";
 import { GetStartedDialog } from "@/components/hex/landing/get-started-dialog";
 import { LandingNav } from "@/components/hex/landing/landing-nav";
+import { cn } from "@/lib/utils";
 import {
   ACCEPT_OPEN,
   defaultFilename,
@@ -45,7 +46,13 @@ async function blankBytes(kind: EditorKind): Promise<ArrayBuffer> {
   return new ArrayBuffer(0);
 }
 
-export function LandingShell({ children }: { children: ReactNode }) {
+export function LandingShell({
+  children,
+  viewport = false,
+}: {
+  children: ReactNode;
+  viewport?: boolean;
+}) {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [getStartedOpen, setGetStartedOpen] = useState(false);
@@ -107,7 +114,9 @@ export function LandingShell({ children }: { children: ReactNode }) {
     <LandingActionsContext.Provider
       value={{ getStarted, createNew, generateSlides }}
     >
-      <div className="hex-landing min-h-[100dvh] pb-24">
+      <div
+        className={cn("hex-landing", viewport && "hex-landing--viewport")}
+      >
         <LandingNav onGetStarted={getStarted} />
         {children}
         <GetStartedDialog

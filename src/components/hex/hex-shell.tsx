@@ -3,7 +3,6 @@ import type { EditorKind } from "@/lib/kinds";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Separator } from "@/components/ui/separator";
 import { HexGitHubLink, HexMarkLink } from "./hex-logo";
 
 const KIND_LABEL: Record<EditorKind, string> = {
@@ -19,12 +18,11 @@ export function HexSiteHeader({
   showGitHub?: boolean;
 }) {
   return (
-    <header className="relative">
-      <div className="mx-auto flex h-14 max-w-5xl items-center justify-between px-4 sm:px-6">
+    <header className="hex-landing-nav">
+      <div className="hex-landing-nav-inner !flex !max-w-5xl">
         <HexMarkLink />
-        {showGitHub ? <HexGitHubLink /> : null}
+        {showGitHub ? <HexGitHubLink className="ml-auto" /> : null}
       </div>
-      <Separator />
     </header>
   );
 }
@@ -62,7 +60,6 @@ export function HexEditorShell({
           Download
         </Button>
       </header>
-      <Separator />
       <div className="min-h-0 flex-1 overflow-hidden">{children}</div>
     </div>
   );

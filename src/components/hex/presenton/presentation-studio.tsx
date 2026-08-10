@@ -1,11 +1,10 @@
 "use client";
 
 import Image from "next/image";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useMemo, useState } from "react";
-import { HexLogo } from "@/components/hex/hex-logo";
-import { Button } from "@/components/ui/button";
+import { HalftoneZone } from "@/components/hex/landing/halftone-zone";
+import { SplitPrimaryButton } from "@/components/hex/landing/split-cta";
 import { defaultFilename } from "@/lib/kinds";
 import {
   PRESENTON_IDEA_CHIPS,
@@ -29,12 +28,7 @@ function base64ToArrayBuffer(base64: string): ArrayBuffer {
 
 function SparkleIcon({ className }: { className?: string }) {
   return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      className={className}
-      aria-hidden
-    >
+    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden>
       <path
         d="M12 3l1.4 4.6L18 9l-4.6 1.4L12 15l-1.4-4.6L6 9l4.6-1.4L12 3Z"
         stroke="currentColor"
@@ -120,69 +114,44 @@ export function PresentationStudio() {
   }, [nSlides, prompt, router, template]);
 
   return (
-    <div className="hex-presentation-studio relative min-h-[100dvh] bg-background">
+    <div className="hex-marketing-frame hex-presentation-studio relative">
+      <HalftoneZone variant="marketing" />
+
       {loading ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/90 backdrop-blur-sm">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
           <div className="mx-auto max-w-md px-6 text-center">
             <div className="mx-auto mb-6 flex size-16 items-center justify-center rounded-full border border-border bg-card">
-              <SparkleIcon className="size-7 animate-pulse text-foreground" />
+              <SparkleIcon className="size-7 animate-pulse text-primary" />
             </div>
-            <p className="text-[22px] font-semibold tracking-tight">
+            <p className="text-xl font-semibold tracking-tight">
               Creating your presentation
             </p>
-            <p className="mt-3 text-[15px] leading-relaxed text-muted-foreground">
+            <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
               Hex is generating slides with the{" "}
-              <span className="text-foreground">{selectedTemplate?.label}</span>{" "}
+              <span className="font-medium text-foreground">
+                {selectedTemplate?.label}
+              </span>{" "}
               style. This usually takes a minute.
             </p>
           </div>
         </div>
       ) : null}
 
-      <header className="mx-auto flex w-full max-w-[1200px] items-center justify-between px-6 py-8 sm:px-8">
-        <div className="flex items-center gap-4">
-          <Button
-            variant="ghost"
-            className="h-9 px-3 text-[14px] text-muted-foreground hover:text-foreground"
-            nativeButton={false}
-            render={<Link href="/" />}
-          >
-            ← Home
-          </Button>
-          <span className="hidden h-4 w-px bg-border sm:block" />
-          <Link
-            href="/"
-            className="hidden items-center gap-2 text-[15px] font-semibold sm:inline-flex"
-          >
-            <HexLogo size={20} alt="" />
-            Hex
-          </Link>
-        </div>
-        <Button
-          variant="outline"
-          className="rounded-[9px]"
-          nativeButton={false}
-          render={<Link href="/product/presentations" />}
-        >
-          Open existing PPTX
-        </Button>
-      </header>
-
-      <main className="mx-auto w-full max-w-[1200px] px-6 pb-20 sm:px-8">
-        <section className="mx-auto max-w-[820px] pt-4 text-center sm:pt-8">
-          <p className="text-[13px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-            AI presentations
-          </p>
-          <h1 className="mt-4 font-[family-name:var(--font-heading)] text-[clamp(2rem,4.5vw,3.25rem)] font-semibold leading-[1.05] tracking-[-0.03em]">
+      <main className="relative z-10 mx-auto w-full max-w-[72rem] px-5 pb-20 pt-8 sm:px-8">
+        <section className="mx-auto max-w-[42rem] text-center">
+          <span className="hex-hero-badge-mark inline-flex px-2 py-0.5 text-[10px]">
+            AI
+          </span>
+          <h1 className="hex-marketing-title mt-4 max-w-none">
             What would you like to present?
           </h1>
-          <p className="mx-auto mt-4 max-w-[560px] text-[16px] leading-relaxed text-muted-foreground">
+          <p className="hex-marketing-lead mx-auto max-w-lg">
             Describe your deck, pick a visual style, and Hex will generate an
             editable presentation you can refine in the editor.
           </p>
 
-          <div className="relative mx-auto mt-10 max-w-[760px]">
-            <div className="overflow-hidden rounded-[18px] border border-border bg-card shadow-[0_20px_60px_rgba(0,0,0,0.35)]">
+          <div className="relative mx-auto mt-8 max-w-[40rem] text-left">
+            <div className="overflow-hidden rounded-xl border border-border bg-card shadow-[0_8px_30px_rgba(0,0,0,0.06)]">
               <textarea
                 value={prompt}
                 onChange={(event) => {
@@ -198,10 +167,10 @@ export function PresentationStudio() {
                 placeholder="Pitch deck for a climate tech startup raising Series A…"
                 rows={3}
                 disabled={loading}
-                className="min-h-[112px] w-full resize-none border-0 bg-transparent px-5 py-4 text-left text-[16px] leading-relaxed outline-none placeholder:text-muted-foreground/70"
+                className="min-h-[6.5rem] w-full resize-none border-0 bg-transparent px-4 py-3.5 text-sm leading-relaxed outline-none placeholder:text-muted-foreground/80"
               />
-              <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border px-4 py-3">
-                <div className="flex flex-wrap items-center gap-2">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border px-3 py-2.5">
+                <div className="flex flex-wrap items-center gap-1.5">
                   {PRESENTON_SLIDE_COUNTS.map((count) => (
                     <button
                       key={count}
@@ -209,34 +178,29 @@ export function PresentationStudio() {
                       disabled={loading}
                       onClick={() => setNSlides(count)}
                       className={cn(
-                        "rounded-full px-3 py-1.5 text-[13px] transition-colors",
+                        "hex-pill",
                         nSlides === count
-                          ? "bg-foreground text-background"
-                          : "bg-secondary text-muted-foreground hover:text-foreground",
+                          ? "hex-pill--active"
+                          : "hex-pill--muted",
                       )}
                     >
                       {count} slides
                     </button>
                   ))}
                 </div>
-                <Button
-                  type="button"
-                  size="lg"
+                <SplitPrimaryButton
+                  label="Generate"
                   disabled={loading || !prompt.trim()}
                   onClick={() => void handleGenerate()}
-                  className="h-11 rounded-[11px] px-5 text-[14px] font-semibold"
-                >
-                  <SparkleIcon className="mr-2 size-4" />
-                  Generate
-                </Button>
+                />
               </div>
             </div>
             {error ? (
-              <p className="mt-3 text-left text-[14px] text-destructive">{error}</p>
+              <p className="mt-2 text-left text-sm text-destructive">{error}</p>
             ) : null}
           </div>
 
-          <div className="mt-6 flex flex-wrap justify-center gap-2">
+          <div className="mt-5 flex flex-wrap justify-center gap-2">
             {PRESENTON_IDEA_CHIPS.map((idea) => (
               <button
                 key={idea}
@@ -246,7 +210,7 @@ export function PresentationStudio() {
                   setPrompt(idea);
                   setError(null);
                 }}
-                className="rounded-full border border-border bg-card/60 px-3.5 py-2 text-[13px] text-muted-foreground transition-colors hover:border-foreground/20 hover:text-foreground"
+                className="hex-pill hex-pill--muted"
               >
                 {idea}
               </button>
@@ -254,19 +218,19 @@ export function PresentationStudio() {
           </div>
         </section>
 
-        <section className="mt-16 sm:mt-20">
+        <section className="mx-auto mt-14 max-w-[56rem] sm:mt-16">
           <div className="flex flex-wrap items-end justify-between gap-4">
             <div>
-              <h2 className="text-[22px] font-semibold tracking-tight">
+              <h2 className="text-lg font-semibold tracking-tight">
                 Choose a style
               </h2>
-              <p className="mt-1 text-[14px] text-muted-foreground">
+              <p className="mt-1 text-sm text-muted-foreground">
                 {selectedTemplate
                   ? `${selectedTemplate.label} · ${selectedTemplate.tagline}`
                   : "Pick a template for your generated deck"}
               </p>
             </div>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-1.5">
               {PRESENTON_TEMPLATE_CATEGORIES.map((item) => (
                 <button
                   key={item.id}
@@ -274,10 +238,10 @@ export function PresentationStudio() {
                   disabled={loading}
                   onClick={() => setCategory(item.id)}
                   className={cn(
-                    "rounded-full px-3.5 py-1.5 text-[13px] font-medium transition-colors",
+                    "hex-pill",
                     category === item.id
-                      ? "bg-foreground text-background"
-                      : "bg-secondary text-muted-foreground hover:text-foreground",
+                      ? "hex-pill--active"
+                      : "hex-pill--muted",
                   )}
                 >
                   {item.label}
@@ -286,7 +250,7 @@ export function PresentationStudio() {
             </div>
           </div>
 
-          <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {filteredTemplates.map((item) => {
               const selected = template === item.id;
               return (
@@ -296,10 +260,8 @@ export function PresentationStudio() {
                   disabled={loading}
                   onClick={() => setTemplate(item.id)}
                   className={cn(
-                    "group overflow-hidden rounded-[14px] border bg-card text-left transition-all",
-                    selected
-                      ? "border-foreground ring-2 ring-foreground/30"
-                      : "border-border hover:border-foreground/25 hover:shadow-lg",
+                    "hex-marketing-card overflow-hidden text-left",
+                    selected && "border-primary ring-2 ring-primary/15",
                   )}
                 >
                   <div className="relative aspect-[16/10] overflow-hidden bg-secondary">
@@ -320,14 +282,14 @@ export function PresentationStudio() {
                       />
                     )}
                     {selected ? (
-                      <span className="absolute left-3 top-3 rounded-full bg-foreground px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-background">
+                      <span className="absolute left-2.5 top-2.5 rounded-full bg-primary px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary-foreground">
                         Selected
                       </span>
                     ) : null}
                   </div>
-                  <div className="px-4 py-3">
-                    <p className="text-[15px] font-semibold">{item.label}</p>
-                    <p className="mt-0.5 text-[13px] text-muted-foreground">
+                  <div className="px-3.5 py-2.5">
+                    <p className="text-sm font-semibold">{item.label}</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
                       {item.tagline}
                     </p>
                   </div>

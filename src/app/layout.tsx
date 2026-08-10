@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist_Mono, Newsreader, DM_Sans } from "next/font/google";
 import "./globals.css";
 import "./landing.css";
@@ -42,21 +42,26 @@ export const metadata: Metadata = {
   },
 };
 
+export const viewport: Viewport = {
+  themeColor: "#ffffff",
+};
+
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
       className={cn(
-        "hex-grain dark h-full bg-background antialiased",
+        "light h-full antialiased",
         display.variable,
         sans.variable,
         geistMono.variable,
         "font-sans",
       )}
+      style={{ colorScheme: "light" }}
     >
       <body
         suppressHydrationWarning
-        className="min-h-full flex flex-col bg-background text-foreground"
+        className="min-h-full flex flex-col bg-white text-foreground"
       >
         {children}
         <Analytics />

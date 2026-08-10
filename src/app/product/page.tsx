@@ -10,25 +10,14 @@ import {
   LandingShell,
   useLandingActions,
 } from "@/components/hex/landing/landing-shell";
-import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { SplitPrimaryButton } from "@/components/hex/landing/split-cta";
 
 function ProductActions() {
   const { getStarted } = useLandingActions();
   return (
-    <Button
-      type="button"
-      size="lg"
-      onClick={getStarted}
-      className="mt-8 h-[50px] rounded-[9px] px-6 text-[15px] font-semibold"
-    >
-      Get started
-    </Button>
+    <div className="mt-6">
+      <SplitPrimaryButton label="Get started" onClick={getStarted} />
+    </div>
   );
 }
 
@@ -44,34 +33,25 @@ export default function ProductPage() {
           export when you are done, and keep files on your device.
         </p>
         <p>
-          Generate | Edit | Redesign | Collaborate across formats without
+          Generate, edit, redesign, and collaborate across formats without
           switching apps or uploading to a cloud drive.
         </p>
 
         <MarketingSection>
-          <ul className="space-y-4">
+          <ul className="space-y-2">
             {PRODUCT_ITEMS.map((item) => (
               <li key={item.slug}>
-                <Card
-                  size="sm"
-                  className="rounded-[9px] py-0 transition-colors hover:bg-accent"
+                <Link
+                  href={item.href}
+                  className="hex-marketing-card block px-4 py-3.5 no-underline"
                 >
-                  <Button
-                    variant="ghost"
-                    className="h-auto w-full justify-start rounded-[9px] px-4 py-4 text-left hover:bg-transparent"
-                    nativeButton={false}
-                    render={<Link href={item.href} className="block w-full" />}
-                  >
-                    <CardHeader className="gap-1 px-0">
-                      <CardTitle className="text-[17px] font-semibold">
-                        {item.label}
-                      </CardTitle>
-                      <CardDescription className="text-[14px]">
-                        {item.description}
-                      </CardDescription>
-                    </CardHeader>
-                  </Button>
-                </Card>
+                  <p className="text-sm font-semibold text-foreground">
+                    {item.label}
+                  </p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {item.description}
+                  </p>
+                </Link>
               </li>
             ))}
           </ul>

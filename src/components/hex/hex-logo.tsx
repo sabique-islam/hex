@@ -4,7 +4,6 @@ import { cn } from "@/lib/utils";
 
 const GITHUB_URL = "https://github.com/sabique-islam/hex";
 
-/** Source asset is 650×558; keep width/height in sync for crisp navbar rendering. */
 const LOGO_WIDTH = 650;
 const LOGO_HEIGHT = 558;
 const LOGO_ASPECT = LOGO_HEIGHT / LOGO_WIDTH;
@@ -13,16 +12,17 @@ export function HexLogo({
   size = 32,
   className,
   alt = "Hex",
+  tone = "brand",
 }: {
   size?: number;
   className?: string;
   alt?: string;
+  tone?: "brand" | "dark" | "light";
 }) {
   const width = size;
   const height = Math.max(1, Math.round(size * LOGO_ASPECT));
 
   return (
-    // Native img keeps PNG alpha intact in the navbar (no optimizer matte).
     // eslint-disable-next-line @next/next/no-img-element
     <img
       src="/hex-logo-transparent.png"
@@ -32,6 +32,8 @@ export function HexLogo({
       decoding="async"
       className={cn(
         "hex-logo block shrink-0 bg-transparent object-contain",
+        tone === "dark" && "brightness-0",
+        tone === "light" && "brightness-0 invert",
         className,
       )}
     />
@@ -57,7 +59,7 @@ export function HexMarkLink({
         <Link href="/" className="inline-flex items-center gap-2" />
       }
     >
-      <HexLogo size={size} alt="" />
+      <HexLogo size={size} alt="" tone="dark" />
       <span>Hex</span>
     </Button>
   );

@@ -8,37 +8,31 @@ import {
   useLandingActions,
 } from "@/components/hex/landing/landing-shell";
 import { getProduct, isProductSlug } from "@/lib/products";
-import { Button } from "@/components/ui/button";
+import {
+  OutlineButton,
+  SplitPrimaryButton,
+} from "@/components/hex/landing/split-cta";
 
 function ProductDetailActions({ kind }: { kind: "docs" | "sheets" | "slides" | "pdf" }) {
   const { getStarted, createNew, generateSlides } = useLandingActions();
   return (
-    <div className="mt-8 flex flex-wrap gap-3">
-      <Button
-        type="button"
-        variant="outline"
-        onClick={getStarted}
-        className="h-[50px] rounded-[9px] px-6 text-[15px] font-medium"
-      >
-        Open file
-      </Button>
+    <div className="mt-6 flex flex-wrap gap-2">
+      <OutlineButton label="Open file" onClick={getStarted} />
       {kind === "slides" ? (
-        <Button
-          type="button"
-          onClick={generateSlides}
-          className="h-[50px] rounded-[9px] px-6 text-[15px] font-semibold"
-        >
-          Design with AI
-        </Button>
+        <SplitPrimaryButton label="Design with AI" onClick={generateSlides} />
       ) : null}
-      <Button
-        type="button"
-        size="lg"
+      <SplitPrimaryButton
+        label={
+          kind === "docs"
+            ? "New document"
+            : kind === "sheets"
+              ? "New spreadsheet"
+              : kind === "slides"
+                ? "New presentation"
+                : "New PDF"
+        }
         onClick={() => void createNew(kind)}
-        className="h-[50px] rounded-[9px] px-6 text-[15px] font-semibold"
-      >
-        New {kind === "docs" ? "document" : kind === "sheets" ? "spreadsheet" : kind === "slides" ? "presentation" : "PDF"}
-      </Button>
+      />
     </div>
   );
 }
@@ -59,14 +53,9 @@ export default function ProductDetailPage() {
           <p key={paragraph}>{paragraph}</p>
         ))}
         <p>
-          <Button
-            variant="link"
-            className="h-auto p-0 text-muted-foreground"
-            nativeButton={false}
-            render={<Link href="/product" />}
-          >
+          <Link href="/product" className="text-sm font-medium text-primary hover:underline">
             View all products
-          </Button>
+          </Link>
         </p>
         <ProductDetailActions kind={product.kind} />
       </MarketingPage>

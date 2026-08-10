@@ -2,13 +2,6 @@
 
 import type { EditorKind } from "@/lib/kinds";
 import { PRODUCT_ITEMS } from "@/lib/products";
-import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -17,6 +10,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { SplitPrimaryButton } from "@/components/hex/landing/split-cta";
 
 const CREATE_LABEL: Record<EditorKind, string> = {
   docs: "New document",
@@ -45,63 +39,55 @@ export function GetStartedDialog({
         if (!nextOpen) onClose();
       }}
     >
-      <DialogContent className="gap-0 p-0 sm:max-w-[560px]">
+      <DialogContent className="gap-0 overflow-hidden rounded-xl p-0 sm:max-w-[34rem]">
         <DialogHeader className="border-b border-border px-6 py-5 text-left">
-          <DialogTitle className="text-[20px] font-semibold">
+          <DialogTitle className="text-lg font-semibold tracking-tight">
             Get started
           </DialogTitle>
-          <DialogDescription className="text-[14px]">
+          <DialogDescription>
             Open a file from your device or create a blank workspace.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-6 px-6 py-5">
-          <Button
+        <div className="space-y-5 px-6 py-5">
+          <button
             type="button"
-            variant="outline"
             onClick={onOpenFile}
-            className="h-auto w-full justify-between rounded-[9px] px-4 py-3 text-[15px] font-medium"
+            className="hex-marketing-card flex w-full items-center justify-between px-4 py-3.5 text-left text-sm font-medium text-foreground"
           >
             <span>Open file</span>
-            <span className="text-[13px] font-normal text-muted-foreground">
-              DOCX | XLSX | PPTX | PDF
+            <span className="text-xs font-normal text-muted-foreground">
+              DOCX · XLSX · PPTX · PDF
             </span>
-          </Button>
+          </button>
 
           {onGenerateSlides ? (
-            <Button
-              type="button"
+            <SplitPrimaryButton
+              label="Design a presentation"
               onClick={onGenerateSlides}
-              className="h-auto w-full justify-between rounded-[9px] px-4 py-3 text-[15px] font-medium"
-            >
-              <span>Design a presentation</span>
-              <span className="text-[13px] font-normal text-primary-foreground/80">
-                AI · templates
-              </span>
-            </Button>
+              className="w-full"
+            />
           ) : null}
 
           <div>
-            <Label className="mb-3 text-[13px] uppercase tracking-[0.08em] text-muted-foreground">
+            <Label className="mb-2.5 block text-xs font-medium uppercase tracking-wider text-muted-foreground">
               Create new
             </Label>
             <ul className="grid gap-2 sm:grid-cols-2">
               {PRODUCT_ITEMS.map((item) => (
                 <li key={item.kind}>
-                  <Card
-                    size="sm"
-                    className="cursor-pointer rounded-[9px] py-4 transition-colors hover:bg-accent"
+                  <button
+                    type="button"
+                    className="hex-marketing-card w-full px-4 py-3.5 text-left"
                     onClick={() => onCreateNew(item.kind)}
                   >
-                    <CardHeader className="gap-1 px-4">
-                      <CardTitle className="text-[15px]">
-                        {CREATE_LABEL[item.kind]}
-                      </CardTitle>
-                      <CardDescription className="text-[13px]">
-                        {item.label}
-                      </CardDescription>
-                    </CardHeader>
-                  </Card>
+                    <p className="text-sm font-medium text-foreground">
+                      {CREATE_LABEL[item.kind]}
+                    </p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      {item.label}
+                    </p>
+                  </button>
                 </li>
               ))}
             </ul>

@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Separator } from "@/components/ui/separator";
+import { HalftoneZone } from "@/components/hex/landing/halftone-zone";
 
 export function MarketingPage({
   title,
@@ -11,21 +11,14 @@ export function MarketingPage({
   children: ReactNode;
 }) {
   return (
-    <main className="mx-auto w-full max-w-[1430px] px-6 pb-20 pt-14 sm:px-8 lg:px-10 lg:pt-16">
-      <div className="max-w-2xl">
-        <h1 className="text-[clamp(2rem,4vw,3rem)] font-semibold tracking-tight text-foreground">
-          {title}
-        </h1>
-        {lead ? (
-          <p className="mt-5 text-[18px] leading-[1.6] text-muted-foreground">
-            {lead}
-          </p>
-        ) : null}
-        <div className="mt-10 space-y-4 text-[16px] leading-[1.7] text-muted-foreground">
-          {children}
-        </div>
-      </div>
-    </main>
+    <div className="hex-marketing-frame">
+      <HalftoneZone variant="marketing" />
+      <main className="hex-marketing-main">
+        <h1 className="hex-marketing-title">{title}</h1>
+        {lead ? <p className="hex-marketing-lead">{lead}</p> : null}
+        <div className="hex-marketing-body">{children}</div>
+      </main>
+    </div>
   );
 }
 
@@ -37,8 +30,7 @@ export function MarketingSection({
   className?: string;
 }) {
   return (
-    <div className={className}>
-      <Separator className="my-10" />
+    <div className={className ? `hex-marketing-section ${className}` : "hex-marketing-section"}>
       {children}
     </div>
   );

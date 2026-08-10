@@ -1,23 +1,72 @@
 "use client";
 
-import { HeroIllustration } from "./hero-illustration";
+import Link from "next/link";
+import { useCallback, useState } from "react";
+import { HalftoneZone } from "@/components/hex/landing/halftone-zone";
+import { HexPreviewTeaser } from "@/components/hex/landing/hex-preview";
+import { LogoCarousel } from "@/components/hex/landing/logo-carousel";
+import {
+  OutlineLink,
+  SplitPrimaryButton,
+} from "@/components/hex/landing/split-cta";
 import { Button } from "@/components/ui/button";
 
-function HeadlineUnderline() {
+const SETUP_CMD = "pnpm dev";
+
+function CopyIcon() {
   return (
-    <svg
-      className="hex-headline-underline"
-      viewBox="0 0 240 12"
-      fill="none"
-      aria-hidden
-    >
+    <svg viewBox="0 0 16 16" fill="none" className="size-3.5" aria-hidden>
+      <rect
+        x="5.5"
+        y="5.5"
+        width="8"
+        height="8"
+        rx="1.5"
+        stroke="currentColor"
+        strokeWidth="1.2"
+      />
       <path
-        d="M2 8 C 40 10, 80 6, 120 8 S 200 10, 238 7"
-        stroke="#f5f5f5"
-        strokeWidth="1.5"
+        d="M4.5 10.5h-1a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1h7a1 1 0 0 1 1 1v1"
+        stroke="currentColor"
+        strokeWidth="1.2"
         strokeLinecap="round"
       />
     </svg>
+  );
+}
+
+function CommandPill() {
+  const [copied, setCopied] = useState(false);
+
+  const onCopy = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(SETUP_CMD);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1600);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  return (
+    <div className="hex-hero-command">
+      <span className="hex-hero-command-text">
+        <span className="hex-hero-command-prefix" aria-hidden>
+          ${" "}
+        </span>
+        {SETUP_CMD}
+      </span>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-xs"
+        aria-label={copied ? "Copied" : "Copy command"}
+        onClick={() => void onCopy()}
+        className="ml-auto size-7 shrink-0 text-[#a1a1aa] hover:bg-black/[0.04] hover:text-[#52525b]"
+      >
+        {copied ? "✓" : <CopyIcon />}
+      </Button>
+    </div>
   );
 }
 
@@ -27,67 +76,77 @@ export function LandingHero({
   onGetStarted: () => void;
 }) {
   return (
-    <section className="mx-auto grid w-full max-w-[1430px] gap-10 px-6 pt-14 sm:px-8 lg:grid-cols-[minmax(0,560px)_minmax(0,1fr)] lg:items-start lg:gap-8 lg:px-10 lg:pt-16">
-      <div className="max-w-[550px]">
-        <h1 className="relative inline-block max-w-[560px] text-[clamp(2.75rem,5vw,4.25rem)] font-semibold leading-[1.02] tracking-[-0.03em] text-foreground">
-          <span className="relative inline-block">
-            Make every document
-            <HeadlineUnderline />
-          </span>
-          <br />
-          editable
-        </h1>
+    <div className="hex-home">
+      <section className="hex-hero">
+        <HalftoneZone variant="hero" fadeBottom />
 
-        <p className="mt-8 max-w-[540px] text-[21px] leading-[1.6] text-muted-foreground">
-          Generate, edit, redesign and collaborate on any document | directly in
-          your browser. Turn PDFs, presentations, scans and more into fully
-          editable documents.
-        </p>
+        <div className="hex-hero-inner">
+          <Link href="/create/presentation" className="hex-hero-badge">
+            <span className="hex-hero-badge-icon" aria-hidden>
+              <svg viewBox="0 0 16 16" fill="none" className="size-3.5">
+                <rect
+                  x="2"
+                  y="3"
+                  width="12"
+                  height="9"
+                  rx="0"
+                  stroke="currentColor"
+                  strokeWidth="1.2"
+                />
+                <path
+                  d="M5 7h6M5 9.5h4"
+                  stroke="currentColor"
+                  strokeWidth="1.2"
+                  strokeLinecap="round"
+                />
+              </svg>
+            </span>
+            <span className="hex-hero-badge-divider" aria-hidden />
+            <span className="hex-hero-badge-tag">New</span>
+            <span className="hex-hero-badge-text">
+              AI presentation studio is live
+            </span>
+            <svg
+              viewBox="0 0 12 12"
+              fill="none"
+              className="size-3 shrink-0 opacity-45"
+              aria-hidden
+            >
+              <path
+                d="M2.5 6h7M6.5 3.5 9 6l-2.5 2.5"
+                stroke="currentColor"
+                strokeWidth="1.2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </Link>
 
-        <div className="mt-10">
-          <Button
-            type="button"
-            size="lg"
-            onClick={onGetStarted}
-            className="h-[52px] min-w-[180px] rounded-[9px] px-8 text-[15px] font-semibold"
-          >
-            Get started
-          </Button>
-        </div>
+          <h1 className="hex-hero-title">
+            Make every document editable
+            <span className="hex-hero-title-accent">.</span>
+          </h1>
 
-        <div className="mt-10 flex max-w-[470px] items-start gap-8">
-          <div>
-            <p className="text-[42px] font-semibold leading-none tracking-tight">
-              Any file
-            </p>
-            <p className="mt-2 text-[15px] text-muted-foreground">
-              PDF | PPTX | DOCX | images &amp; scans
-            </p>
-          </div>
-          <span className="mt-2 h-12 w-px bg-border" />
-          <div>
-            <p className="text-[42px] font-semibold leading-none tracking-tight">
-              100%
-            </p>
-            <p className="mt-2 text-[15px] text-muted-foreground">
-              Fully editable
-            </p>
-          </div>
-        </div>
-
-        <div className="mt-6 max-w-[470px] border-t border-border pt-5">
-          <p className="text-[15px] font-medium text-muted-foreground">
-            Generate | Edit | Redesign | Collaborate
+          <p className="hex-hero-subtitle">
+            Generate, edit, and collaborate on any document in your browser.
+            PDFs, decks, scans. Fully editable, stored locally.
           </p>
-          <p className="mt-3 text-[14px] text-muted-foreground">
-            PDF | PPTX | DOCX | Scans | fully editable documents
-          </p>
-        </div>
-      </div>
 
-      <div className="relative mx-auto w-full max-w-[620px] lg:mx-0 lg:justify-self-end">
-        <HeroIllustration />
-      </div>
-    </section>
+          <div className="hex-hero-actions">
+            <SplitPrimaryButton label="Get started" onClick={onGetStarted} />
+            <OutlineLink label="Browse templates" href="/templates" />
+          </div>
+
+          <CommandPill />
+
+          <div className="hex-hero-proof">
+            <p className="hex-hero-proof-label">Works with every format</p>
+            <LogoCarousel />
+          </div>
+        </div>
+      </section>
+
+      <HexPreviewTeaser />
+    </div>
   );
 }
