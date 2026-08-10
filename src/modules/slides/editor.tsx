@@ -32,7 +32,7 @@ export function SlidesEditor({ fileId }: { fileId: string }) {
       setName(record.name);
       try {
         if (record.bytes.byteLength > 0) {
-          const buffer = record.bytes.slice(0).buffer;
+          const buffer = record.bytes.slice(0);
           const imported = await importPptxToSlides(buffer, record.name);
           await loadFontsForSnapshot(imported);
           setSnapshot(imported);
@@ -115,7 +115,7 @@ export function SlidesEditor({ fileId }: { fileId: string }) {
         onDownload={() => void handleDownload()}
         onPersist={() => void persist()}
         onOpenPptx={(file) => handleOpenPptx(file)}
-        brand={<HexMarkLink size={28} className="shrink-0" />}
+        brand={<HexMarkLink size={28} tone="light" className="shrink-0" />}
         onReady={(api) => {
           apiRef.current = api;
         }}

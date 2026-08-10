@@ -45,18 +45,25 @@ export function HexEditorShell({
   return (
     <div className="hex-editor flex h-dvh min-h-0 flex-col bg-background">
       <header className="hex-editor-bar flex h-12 shrink-0 items-center gap-3 px-3 sm:px-4">
-        <HexMarkLink size={20} className="shrink-0" />
-        <Badge variant="secondary" className="hidden sm:inline-flex">
+        <HexMarkLink size={20} tone="light" className="shrink-0" />
+        <Badge
+          variant="secondary"
+          className="hidden border-white/10 bg-white/10 text-white sm:inline-flex"
+        >
           {KIND_LABEL[kind]}
         </Badge>
         <Input
           aria-label="File name"
-          className="h-8 min-w-0 flex-1 border-transparent bg-transparent px-2 shadow-none focus-visible:ring-0"
+          className="h-8 min-w-0 flex-1 border-transparent bg-transparent px-2 text-white shadow-none placeholder:text-white/40 focus-visible:ring-0"
           value={name}
           onChange={(e) => onNameChange(e.target.value)}
           onBlur={() => onPersist?.()}
         />
-        <Button size="sm" onClick={onDownload}>
+        <Button
+          size="sm"
+          className="bg-white text-black hover:bg-white/90"
+          onClick={onDownload}
+        >
           Download
         </Button>
       </header>

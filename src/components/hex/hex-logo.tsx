@@ -43,15 +43,18 @@ export function HexLogo({
 export function HexMarkLink({
   size = 24,
   className,
+  tone = "dark",
 }: {
   size?: number;
   className?: string;
+  tone?: "brand" | "dark" | "light";
 }) {
   return (
     <Button
       variant="ghost"
       className={cn(
         "h-auto gap-2 px-0 font-heading text-lg font-semibold tracking-tight hover:bg-transparent",
+        tone === "light" && "text-white hover:text-white",
         className,
       )}
       nativeButton={false}
@@ -59,7 +62,7 @@ export function HexMarkLink({
         <Link href="/" className="inline-flex items-center gap-2" />
       }
     >
-      <HexLogo size={size} alt="" tone="dark" />
+      <HexLogo size={size} alt="" tone={tone} />
       <span>Hex</span>
     </Button>
   );

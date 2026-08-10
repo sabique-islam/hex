@@ -98,8 +98,8 @@
   --hex-selection: rgba(0, 87, 255, 0.16);
   --hex-selection-foreground: var(--foreground);
   --hex-editor-bg: var(--background);
-  --hex-editor-bar: var(--background);
-  --hex-editor-border: var(--border);
+  --hex-editor-bar: #141414;
+  --hex-editor-border: #242424;
 
   --radius-marketing: 7px;
 }
@@ -210,6 +210,21 @@
 .hex-editor-bar {
   border-bottom: 1px solid var(--hex-editor-border);
   background: var(--hex-editor-bar);
+  color: #e8e8e8;
+}
+
+.hex-slides .cs-titlebar {
+  background: #141414;
+  border-bottom-color: #242424;
+  color: #e8e8e8;
+  --cs-text: #e8e8e8;
+  --cs-text-mute: #a1a1aa;
+  --cs-hover: rgba(255, 255, 255, 0.06);
+  --cs-surface: #141414;
+  --cs-surface-2: #1c1c1c;
+  --cs-border: #242424;
+  --cs-border-2: #333333;
+  --cs-focus: #0057ff;
 }
 
 .hex-editor .hex-docs,
@@ -225,6 +240,33 @@
   color: #1f2328;
   --cs-bg: #f8f9fa;
   --foreground: #1f2328;
+}
+
+html.dark .hex-editor,
+html[data-theme="dark"] .hex-editor {
+  background: #141414;
+  color: #e8e8e8;
+}
+
+html.dark .hex-editor .hex-sheets,
+html[data-theme="dark"] .hex-editor .hex-sheets {
+  --cs-chrome-bg: #141414;
+  --cs-chrome-border: #242424;
+  --hex-surface: #141414;
+}
+
+html.dark .hex-slides-shell,
+html[data-theme="dark"] .hex-slides-shell {
+  color-scheme: dark;
+  color: #e8e8e8;
+  --cs-bg: #141414;
+  --foreground: #e8e8e8;
+}
+
+html.dark body,
+html[data-theme="dark"] body {
+  background-color: #141414;
+  color: #e8e8e8;
 }
 
 .hex-slides-shell ::selection,

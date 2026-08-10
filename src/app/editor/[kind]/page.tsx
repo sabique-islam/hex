@@ -3,6 +3,7 @@
 import dynamic from "next/dynamic";
 import { useParams, useSearchParams } from "next/navigation";
 import { Suspense } from "react";
+import { EditorThemeSync } from "@/components/hex/editor-theme-sync";
 import { OutlineLink } from "@/components/hex/landing/split-cta";
 import { isEditorKind } from "@/lib/kinds";
 
@@ -57,6 +58,7 @@ function EditorBody() {
 
   return (
     <div className="h-dvh w-full overflow-hidden bg-background">
+      <EditorThemeSync />
       {kind === "docs" && <DocsEditor fileId={id} />}
       {kind === "sheets" && <SheetsEditor fileId={id} />}
       {kind === "slides" && <SlidesEditor fileId={id} />}

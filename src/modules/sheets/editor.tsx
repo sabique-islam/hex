@@ -11,12 +11,14 @@ import {
 } from "@hex/sheets";
 import "@hex/sheets/univer/facade";
 import "@hex/sheets/styles";
+import { useEditorAppearance } from "@/components/hex/editor-theme-sync";
 import { HexEditorShell } from "@/components/hex/hex-shell";
 import { mimeForKind } from "@/lib/kinds";
 import { downloadBlob, getFile, putFile } from "@/lib/storage";
 
 export function SheetsEditor({ fileId }: { fileId: string }) {
   const apiRef = useRef<CasualSheetsAPI | null>(null);
+  const appearance = useEditorAppearance();
   const [initialData, setInitialData] = useState<IWorkbookData | null>(null);
   const [name, setName] = useState("Untitled.xlsx");
   const [error, setError] = useState<string | null>(null);
@@ -34,7 +36,7 @@ export function SheetsEditor({ fileId }: { fileId: string }) {
       try {
         if (record.bytes.byteLength > 0) {
           const { xlsxToWorkbookData } = await import("@casualoffice/sheets/xlsx");
-          const buffer = record.bytes.slice(0).buffer;
+          const buffer = record.bytes.slice(0);
           setInitialData(await xlsxToWorkbookData(buffer));
         } else {
           setInitialData(emptyWorkbook());
@@ -91,7 +93,7 @@ export function SheetsEditor({ fileId }: { fileId: string }) {
         locales={LOCALES}
         lazyPlugins={false}
         chrome="full"
-        appearance="light"
+        appearance={appearance}
         onBeforeCreateUnit={registerSheetsPlugins}
         style={{ width: "100%", height: "100%" }}
         onReady={(api) => {
