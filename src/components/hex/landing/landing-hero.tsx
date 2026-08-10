@@ -11,7 +11,7 @@ import {
 } from "@/components/hex/landing/split-cta";
 import { Button } from "@/components/ui/button";
 
-const SETUP_CMD = "pnpm dev";
+const SETUP_CMD = "hex damn is this fr";
 
 function CopyIcon() {
   return (
