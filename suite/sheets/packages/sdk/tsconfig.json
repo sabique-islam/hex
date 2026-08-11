@@ -14,7 +14,6 @@
     "noEmit": true,
     "verbatimModuleSyntax": false,
     "types": ["node"],
-    "baseUrl": ".",
     "paths": {
       "@casualoffice/sheets/chrome": ["./src/chrome/index.ts"],
       "@casualoffice/sheets/collab": ["./src/collab/index.ts"],

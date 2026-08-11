@@ -33,6 +33,7 @@ import { Toolbar } from './Toolbar';
 import { FormulaBar } from './FormulaBar';
 import { FindReplace } from './FindReplace';
 import { DialogProvider, type DialogKind } from './dialog-context';
+import { useMenuShortcuts } from './useMenuShortcuts';
 import type { ChromeExtensions } from './extensions';
 import type { CasualSheetsAPI } from '../sheets/api';
 
@@ -49,6 +50,17 @@ export interface ChromeTopProps {
   hostOwnedDialogs?: DialogKind[];
   /** Host chrome extensions: custom toolbar/menu items, dialogs, panels. */
   extensions?: ChromeExtensions;
+}
+
+function MenuShortcutsBridge({
+  api,
+  onOpenFindReplace,
+}: {
+  api: CasualSheetsAPI | null;
+  onOpenFindReplace: (replaceMode: boolean) => void;
+}) {
+  useMenuShortcuts(api, { onOpenFindReplace });
+  return null;
 }
 
 export function ChromeTop({
@@ -75,6 +87,7 @@ export function ChromeTop({
       hostOwnedDialogs={hostOwnedDialogs}
       onOpenFindReplace={openFindReplace}
     >
+      <MenuShortcutsBridge api={api} onOpenFindReplace={openFindReplace} />
       <MenuBar api={api} features={features} extensions={extensions} />
       <Toolbar api={api} features={features} extensions={extensions} />
       <FormulaBar api={api} />
