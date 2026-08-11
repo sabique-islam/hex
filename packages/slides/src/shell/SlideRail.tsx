@@ -157,12 +157,34 @@ export function SlideRail() {
         });
         unsubActive = () => sub.unsubscribe();
         const cs = univer.__getInjector().get(ICommandService);
-        const d = cs.onCommandExecuted((info) => {
+        const d1 = cs.onCommandExecuted((info) => {
           if (disposed) return;
-          if (!info.id.startsWith('slide.')) return;
-          refresh();
+          const id = info.id;
+          if (
+            id.startsWith('slide.') ||
+            id.includes('RichText') ||
+            id.startsWith('doc.')
+          ) {
+            refresh();
+          }
         });
-        cmdDisposer = { dispose: () => d?.dispose?.() };
+        const d2 = cs.onMutationExecutedForCollab((info) => {
+          if (disposed) return;
+          const id = info.id;
+          if (
+            id.startsWith('slide.') ||
+            id.includes('RichText') ||
+            id.startsWith('doc.')
+          ) {
+            refresh();
+          }
+        });
+        cmdDisposer = {
+          dispose: () => {
+            d1?.dispose?.();
+            d2?.dispose?.();
+          },
+        };
         wiredUnitId = model.getUnitId();
         return true;
       } catch {

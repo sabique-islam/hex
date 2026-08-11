@@ -8,10 +8,12 @@
   "exports": {
     ".": "./src/index.ts",
     "./styles": "./src/styles.ts",
+    "./use-menu-shortcuts": "./src/use-menu-shortcuts.ts",
     "./univer/facade": "./src/univer/facade.ts"
   },
   "dependencies": {
     "@casualoffice/sheets": "0.20.0",
+    "@e965/xlsx": "^0.20.3",
     "@univerjs/core": "0.25.0",
     "@univerjs/data-validation": "0.25.0",
     "@univerjs/design": "0.25.0",

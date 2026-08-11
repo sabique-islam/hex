@@ -19,7 +19,6 @@ import { IRenderManagerService } from "@univerjs/engine-render";
 
 import { HexSlides, type HexSlidesApi } from "../HexSlides";
 import { dispatchSlideCommand } from "../univer/commands";
-import { getSelectedElement } from "./selection";
 import "../i18n";
 import { ElementContextMenu } from "./ElementContextMenu";
 import { FormatPaneProvider } from "./FormatPane";
@@ -28,6 +27,7 @@ import { SlideRailProvider } from "./SlideRail";
 import { StatusBar } from "./StatusBar";
 import { TitleBar } from "./TitleBar";
 import { Toolbar } from "./Toolbar";
+import { useSlideKeyboardShortcuts } from "./useSlideKeyboardShortcuts";
 
 function getCurrentSnapshot(fallback: ISlideData): ISlideData {
   const w = window as unknown as { univer?: Univer };
@@ -280,41 +280,13 @@ function HexSlidesShellInner({
     };
   }, []);
 
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement | null;
-      const inEditable =
-        !!target &&
-        (target.tagName === "INPUT" ||
-          target.tagName === "TEXTAREA" ||
-          target.isContentEditable);
-      const mod = e.ctrlKey || e.metaKey;
-      if (!mod || inEditable) return;
-      const k = e.key.toLowerCase();
-      if (k === "s") {
-        e.preventDefault();
-        void handleSave();
-      } else if (k === "z" && !e.shiftKey) {
-        e.preventDefault();
-        void dispatchSlideCommand("univer.command.undo");
-      } else if ((k === "z" && e.shiftKey) || k === "y") {
-        e.preventDefault();
-        void dispatchSlideCommand("univer.command.redo");
-      } else if (k === "m") {
-        e.preventDefault();
-        void dispatchSlideCommand("slide.operation.append-slide");
-      } else if (k === "d") {
-        e.preventDefault();
-        if (getSelectedElement()) {
-          void dispatchSlideCommand("casual-slides.command.duplicate-element");
-        } else {
-          void dispatchSlideCommand("slide.command.duplicate-slide");
-        }
-      }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [handleSave]);
+  useSlideKeyboardShortcuts({
+    onSave: () => void handleSave(),
+    onFitToWindow: handleFitToWindow,
+    setZoom,
+    onOpen: onOpenPptx ? handleOpenPptx : undefined,
+    onSlideshow: () => setStatus("Slideshow is not available in Hex yet"),
+  });
 
   useEffect(
     () => () => {
