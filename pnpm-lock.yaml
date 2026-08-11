@@ -20,7 +20,7 @@ overrides:
 
 patchedDependencies:
   '@univerjs/slides-ui@0.25.0':
-    hash: 85922a3f46adecdd8953d7a97e20d3e5e9d70a782dbb75bd6be77f60921893e2
+    hash: 28dfc2352418161b41aecb4f60259b48745d2dec15645af9b468061f56005ab8
     path: patches/@univerjs__slides-ui@0.25.0.patch
 
 importers:
@@ -295,6 +295,9 @@ importers:
       '@casualoffice/sheets':
         specifier: 0.20.0
         version: 0.20.0(b2df40525064f793cc6f5206af92f777)
+      '@e965/xlsx':
+        specifier: ^0.20.3
+        version: 0.20.3
       '@univerjs/core':
         specifier: 0.25.0
         version: 0.25.0(react@19.2.8)(rxjs@7.8.2)
@@ -447,7 +450,7 @@ importers:
         version: 0.25.0(react@19.2.8)(rxjs@7.8.2)
       '@univerjs/slides-ui':
         specifier: 0.25.0
-        version: 0.25.0(patch_hash=85922a3f46adecdd8953d7a97e20d3e5e9d70a782dbb75bd6be77f60921893e2)(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(rxjs@7.8.2)
+        version: 0.25.0(patch_hash=28dfc2352418161b41aecb4f60259b48745d2dec15645af9b468061f56005ab8)(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(rxjs@7.8.2)
       '@univerjs/themes':
         specifier: 0.25.0
         version: 0.25.0
@@ -971,6 +974,11 @@ packages:
 
   '@dotenvx/primitives@0.8.0':
     resolution: {integrity: sha512-VYJy0uhFm9zTJ1TxBaW/pA8bjbOM/OttaNMwZ1RHG4JKyRG7DhSdiqD1ipQoAyoD22olUtxbP78W9xY3Wd11bg==}
+
+  '@e965/xlsx@0.20.3':
+    resolution: {integrity: sha512-703RN/3OdsRD5mtse2HBX7Um7xwaP9tlswEG6svOtjqokXoX7rJdQj7DyabD2I+xk22RgaIIU+R6BHgkpZGB/w==}
+    engines: {node: '>=0.8'}
+    hasBin: true
 
   '@embedpdf/core@2.15.0':
     resolution: {integrity: sha512-0yaPCgvbE5/cBf+5rHBUsRUm8i6hSl894xjC19HTOmb8DqrhxOxbOQSyjiTbJTQK52zZrNL79SigsPgGHPrYWA==}
@@ -6714,6 +6722,8 @@ snapshots:
 
   '@dotenvx/primitives@0.8.0': {}
 
+  '@e965/xlsx@0.20.3': {}
+
   '@embedpdf/core@2.15.0(preact@10.29.8)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(svelte@5.56.8(@typescript-eslint/types@8.66.0))(vue@3.5.41(typescript@5.9.3))':
     dependencies:
       '@embedpdf/engines': 2.15.0(preact@10.29.8)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(svelte@5.56.8(@typescript-eslint/types@8.66.0))(vue@3.5.41(typescript@5.9.3))
@@ -8850,7 +8860,7 @@ snapshots:
     transitivePeerDependencies:
       - react
 
-  '@univerjs/slides-ui@0.25.0(patch_hash=85922a3f46adecdd8953d7a97e20d3e5e9d70a782dbb75bd6be77f60921893e2)(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(rxjs@7.8.2)':
+  '@univerjs/slides-ui@0.25.0(patch_hash=28dfc2352418161b41aecb4f60259b48745d2dec15645af9b468061f56005ab8)(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(rxjs@7.8.2)':
     dependencies:
       '@univerjs/core': 0.25.0(react@19.2.8)(rxjs@7.8.2)
       '@univerjs/design': 0.25.0(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)

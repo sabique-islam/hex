@@ -11,11 +11,14 @@ import {
 } from "@hex/slides";
 import "@hex/slides/styles";
 import { HexMarkLink } from "@/components/hex/hex-logo";
+import { useEditorAppearance } from "@/components/hex/editor-theme-sync";
+import { applyEditorAppearance } from "@/lib/editor-theme";
 import { mimeForKind } from "@/lib/kinds";
 import { downloadBlob, getFile, putFile } from "@/lib/storage";
 
 export function SlidesEditor({ fileId }: { fileId: string }) {
   const apiRef = useRef<HexSlidesApi | null>(null);
+  const appearance = useEditorAppearance();
   const [snapshot, setSnapshot] = useState<ISlideData | null>(null);
   const [name, setName] = useState("Untitled.pptx");
   const [error, setError] = useState<string | null>(null);
@@ -52,6 +55,10 @@ export function SlidesEditor({ fileId }: { fileId: string }) {
       apiRef.current = null;
     };
   }, [fileId]);
+
+  useEffect(() => {
+    applyEditorAppearance(appearance);
+  }, [appearance]);
 
   const persist = useCallback(async () => {
     const api = apiRef.current;
@@ -107,7 +114,11 @@ export function SlidesEditor({ fileId }: { fileId: string }) {
   }
 
   return (
-    <div key={fileId} className="hex-slides h-dvh min-h-0">
+    <div
+      key={fileId}
+      className="hex-slides h-dvh min-h-0"
+      data-theme={appearance}
+    >
       <HexSlidesShell
         snapshot={snapshot}
         fileName={name}

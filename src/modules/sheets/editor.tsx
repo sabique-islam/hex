@@ -9,6 +9,7 @@ import {
   registerSheetsPlugins,
   type CasualSheetsAPI,
 } from "@hex/sheets";
+import { useSheetsMenuShortcuts } from "@hex/sheets/use-menu-shortcuts";
 import "@hex/sheets/univer/facade";
 import "@hex/sheets/styles";
 import { useEditorAppearance } from "@/components/hex/editor-theme-sync";
@@ -18,6 +19,7 @@ import { downloadBlob, getFile, putFile } from "@/lib/storage";
 
 export function SheetsEditor({ fileId }: { fileId: string }) {
   const apiRef = useRef<CasualSheetsAPI | null>(null);
+  const [sheetsApi, setSheetsApi] = useState<CasualSheetsAPI | null>(null);
   const appearance = useEditorAppearance();
   const [initialData, setInitialData] = useState<IWorkbookData | null>(null);
   const [name, setName] = useState("Untitled.xlsx");
@@ -35,9 +37,9 @@ export function SheetsEditor({ fileId }: { fileId: string }) {
       setName(record.name);
       try {
         if (record.bytes.byteLength > 0) {
-          const { xlsxToWorkbookData } = await import("@casualoffice/sheets/xlsx");
+          const { workbookFromBytes } = await import("@hex/sheets");
           const buffer = record.bytes.slice(0);
-          setInitialData(await xlsxToWorkbookData(buffer));
+          setInitialData(await workbookFromBytes(record.name, buffer));
         } else {
           setInitialData(emptyWorkbook());
         }
@@ -57,6 +59,8 @@ export function SheetsEditor({ fileId }: { fileId: string }) {
     const bytes = await blob.arrayBuffer();
     await putFile({ id: fileId, kind: "sheets", name, bytes });
   }, [fileId, name]);
+
+  useSheetsMenuShortcuts(sheetsApi);
 
   const handleDownload = useCallback(async () => {
     const api = apiRef.current;
@@ -98,6 +102,7 @@ export function SheetsEditor({ fileId }: { fileId: string }) {
         style={{ width: "100%", height: "100%" }}
         onReady={(api) => {
           apiRef.current = api;
+          setSheetsApi(api);
         }}
         onChange={() => void persist()}
         onSave={() => void persist()}

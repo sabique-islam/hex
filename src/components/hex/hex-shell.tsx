@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useRef, type ReactNode } from "react";
 import type { EditorKind } from "@/lib/kinds";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -42,6 +42,8 @@ export function HexEditorShell({
   onPersist?: () => void;
   children: ReactNode;
 }) {
+  const filenameInputRef = useRef<HTMLInputElement>(null);
+
   return (
     <div className="hex-editor flex h-dvh min-h-0 flex-col bg-background">
       <header className="hex-editor-bar flex h-12 shrink-0 items-center gap-3 px-3 sm:px-4">
@@ -53,6 +55,7 @@ export function HexEditorShell({
           {KIND_LABEL[kind]}
         </Badge>
         <Input
+          ref={filenameInputRef}
           aria-label="File name"
           className="h-8 min-w-0 flex-1 border-transparent bg-transparent px-2 text-white shadow-none placeholder:text-white/40 focus-visible:ring-0"
           value={name}
@@ -67,7 +70,16 @@ export function HexEditorShell({
           Download
         </Button>
       </header>
-      <div className="min-h-0 flex-1 overflow-hidden">{children}</div>
+      <div
+        className="min-h-0 flex-1 overflow-hidden"
+        onMouseDown={(e) => {
+          const target = e.target as HTMLElement;
+          if (target.closest("input, textarea, button, a, [role='dialog']")) return;
+          filenameInputRef.current?.blur();
+        }}
+      >
+        {children}
+      </div>
     </div>
   );
 }

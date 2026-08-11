@@ -9,11 +9,14 @@ import {
 } from "@hex/docs";
 import "@hex/docs/styles.css";
 import { HexEditorShell } from "@/components/hex/hex-shell";
+import { useEditorAppearance } from "@/components/hex/editor-theme-sync";
+import { applyEditorAppearance } from "@/lib/editor-theme";
 import { mimeForKind } from "@/lib/kinds";
 import { downloadBlob, getFile, putFile } from "@/lib/storage";
 
 export function DocsEditor({ fileId }: { fileId: string }) {
   const ref = useRef<DocxEditorRef>(null);
+  const appearance = useEditorAppearance();
   const [document, setDocument] = useState<Document | null>(null);
   const [documentBuffer, setDocumentBuffer] = useState<ArrayBuffer | null>(null);
   const [name, setName] = useState("Untitled.docx");
@@ -43,6 +46,10 @@ export function DocsEditor({ fileId }: { fileId: string }) {
       cancelled = true;
     };
   }, [fileId]);
+
+  useEffect(() => {
+    applyEditorAppearance(appearance);
+  }, [appearance]);
 
   const persist = useCallback(async () => {
     const buffer = await ref.current?.save();
@@ -76,17 +83,19 @@ export function DocsEditor({ fileId }: { fileId: string }) {
       onDownload={() => void handleDownload()}
       onPersist={() => void persist()}
     >
-      <DocxEditor
-        ref={ref}
-        className="hex-docs h-full"
-        document={documentBuffer ? undefined : document}
-        documentBuffer={documentBuffer ?? undefined}
-        chrome="embedded"
-        showToolbar
-        showRuler
-        showZoomControl
-        onSave={() => void persist()}
-      />
+      <div className="h-full" data-theme={appearance}>
+        <DocxEditor
+          ref={ref}
+          className="hex-docs h-full"
+          document={documentBuffer ? undefined : document}
+          documentBuffer={documentBuffer ?? undefined}
+          chrome="embedded"
+          showToolbar
+          showRuler
+          showZoomControl
+          onSave={() => void persist()}
+        />
+      </div>
     </HexEditorShell>
   );
 }
