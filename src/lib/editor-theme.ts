@@ -42,12 +42,19 @@ export function applyEditorAppearance(appearance: EditorAppearance) {
   }
 }
 
+const EDITOR_BODY_CLASSES = ["cs-slide-rail-open", "cs-format-pane-open"] as const;
+
+/** Restore marketing/light chrome after leaving an editor. */
 export function resetEditorAppearance() {
   if (typeof document === "undefined") return;
   const root = document.documentElement;
   root.removeAttribute("data-theme");
-  root.style.colorScheme = "";
+  root.style.colorScheme = "light";
   root.classList.remove("dark");
   root.classList.add("light");
   document.body.style.backgroundColor = "";
+  document.body.style.color = "";
+  for (const cls of EDITOR_BODY_CLASSES) {
+    document.body.classList.remove(cls);
+  }
 }

@@ -4,6 +4,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useRef,
   useState,
   type ReactNode,
@@ -12,6 +13,7 @@ import { useRouter } from "next/navigation";
 import { GetStartedDialog } from "@/components/hex/landing/get-started-dialog";
 import { LandingNav } from "@/components/hex/landing/landing-nav";
 import { cn } from "@/lib/utils";
+import { resetEditorAppearance } from "@/lib/editor-theme";
 import {
   ACCEPT_OPEN,
   defaultFilename,
@@ -44,6 +46,14 @@ async function blankBytes(kind: EditorKind): Promise<ArrayBuffer> {
     ) as ArrayBuffer;
   }
   return new ArrayBuffer(0);
+}
+
+/** Marketing routes always use light chrome — reset editor theme leaks on enter. */
+function LandingThemeSync() {
+  useEffect(() => {
+    resetEditorAppearance();
+  }, []);
+  return null;
 }
 
 export function LandingShell({
@@ -117,6 +127,7 @@ export function LandingShell({
       <div
         className={cn("hex-landing", viewport && "hex-landing--viewport")}
       >
+        <LandingThemeSync />
         <LandingNav onGetStarted={getStarted} />
         {children}
         <GetStartedDialog
