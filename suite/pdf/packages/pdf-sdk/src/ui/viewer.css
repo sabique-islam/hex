@@ -21,10 +21,80 @@
   --color-text: #1a1d23;
   --color-border-strong: #9aa3b0; /* thumbnail scrollbar / dividers, ~3:1 (UI) */
 }
-[data-theme='dark'] .cpdf {
+.cpdf[data-theme='dark'] {
   background: #13151a;
-  --color-text-secondary: #c2cad6; /* ~9:1 on the dark canvas */
+  color-scheme: dark;
+  --color-text-secondary: #c2cad6;
   --color-text: #f2f4f8;
+  --color-surface-raised: #1c1f26;
+  --color-surface: #14161c;
+  --color-surface-alt: rgba(255, 255, 255, 0.06);
+  --color-border: #2a2f3a;
+  --color-border-strong: #3d4554;
+  --color-divider: rgba(255, 255, 255, 0.1);
+  --color-hover: rgba(255, 255, 255, 0.06);
+  --color-pressed: rgba(255, 255, 255, 0.1);
+  --color-accent-soft: rgba(70, 90, 255, 0.22);
+  --color-text-disabled: rgba(255, 255, 255, 0.32);
+  --color-focus-ring: #6b7dff;
+}
+.cpdf[data-theme='dark'] .cpdf__rail,
+.cpdf[data-theme='dark'] .cpdf__bottomwrap,
+.cpdf[data-theme='dark'] .cpdf__bottom,
+.cpdf[data-theme='dark'] .cpdf__props,
+.cpdf[data-theme='dark'] .cpdf__panel,
+.cpdf[data-theme='dark'] .cpdf__search,
+.cpdf[data-theme='dark'] .cpdf__seltools,
+.cpdf[data-theme='dark'] .cpdf__zoompop {
+  background: var(--color-surface-raised);
+  border-color: var(--color-border);
+  color: var(--color-text);
+}
+.cpdf[data-theme='dark'] .cpdf__railbtn:hover:not(:disabled),
+.cpdf[data-theme='dark'] .cpdf-iconbtn:hover:not(:disabled) {
+  background: var(--color-hover);
+  color: var(--color-text);
+}
+.cpdf[data-theme='dark'] .cpdf__railbtn[data-active='true'],
+.cpdf[data-theme='dark'] .cpdf-iconbtn[data-active='true'] {
+  background: var(--color-accent-soft);
+  color: var(--color-accent, #8b9dff);
+}
+.cpdf[data-theme='dark'] .cpdf__pagebox,
+.cpdf[data-theme='dark'] .cpdf__pagetotal,
+.cpdf[data-theme='dark'] .cpdf__zoomlabel,
+.cpdf[data-theme='dark'] .cpdf__props-head,
+.cpdf[data-theme='dark'] .cpdf__panel-head {
+  color: var(--color-text);
+}
+.cpdf[data-theme='dark'] .cpdf__pageinput,
+.cpdf[data-theme='dark'] .cpdf__numinput,
+.cpdf[data-theme='dark'] .cpdf__comment-input,
+.cpdf[data-theme='dark'] .cpdf__comment-new-input,
+.cpdf[data-theme='dark'] .cpdf__reply-input {
+  background: var(--color-surface-alt);
+  color: var(--color-text);
+  border-color: var(--color-border);
+}
+.cpdf[data-theme='dark'] .cpdf__sep {
+  background: var(--color-divider);
+}
+.cpdf[data-theme='dark'] .cpdf__field-label,
+.cpdf[data-theme='dark'] .cpdf__empty-hint,
+.cpdf[data-theme='dark'] .cpdf__empty-title {
+  color: var(--color-text-secondary);
+}
+
+/* Invert rendered page pixels for dark reading (annotations stay un-inverted).
+ * EmbedPDF RenderLayer paints each page as an <img>, not a <canvas>. */
+.cpdf[data-invert-pages='true'] .cpdf__page > img,
+.cpdf[data-invert-pages='true'] .cpdf__page .cpdf__render,
+.cpdf[data-invert-pages='true'] .cpdf__page canvas {
+  filter: invert(1) hue-rotate(180deg);
+}
+.cpdf[data-invert-pages='true'] .cpdf__thumb img,
+.cpdf[data-invert-pages='true'] .cpdf__thumb canvas {
+  filter: invert(1) hue-rotate(180deg);
 }
 .cpdf__main {
   display: flex;
@@ -119,7 +189,7 @@
   opacity: 1;
   transition-delay: 220ms;
 }
-[data-theme='dark'] .cpdf__railbtn::after {
+.cpdf[data-theme='dark'] .cpdf__railbtn::after {
   background: #e8eaf0;
   color: #111;
 }
@@ -168,7 +238,7 @@
   opacity: 1;
   transition-delay: 200ms;
 }
-[data-theme='dark'] .cpdf__bottom .cpdf-iconbtn::after {
+.cpdf[data-theme='dark'] .cpdf__bottom .cpdf-iconbtn::after {
   background: #e8eaf0;
   color: #111;
 }
@@ -1213,7 +1283,7 @@
 .cpdf__textedit-run:hover {
   background: rgba(45, 140, 255, 0.07);
 }
-[data-theme='dark'] .cpdf__textedit-run:hover {
+.cpdf[data-theme='dark'] .cpdf__textedit-run:hover {
   background: rgba(45, 140, 255, 0.18);
 }
 /* Active input: white background covers the PDF glyphs so the user sees their
@@ -1233,7 +1303,7 @@
   caret-color: #2d8cff;
   z-index: 2;
 }
-[data-theme='dark'] .cpdf__textedit-input {
+.cpdf[data-theme='dark'] .cpdf__textedit-input {
   background: #23272e;
   color: #f0f0f0;
 }
@@ -1795,7 +1865,7 @@
 /* ═══ NEOBRUTALIST viewer overrides (Phase 4) ══════════════════════════════ */
 /* Warm editor canvas so white pages separate (was cold #e0e4ea / #13151a). */
 .cpdf { background: #e6e1d6; }
-[data-theme='dark'] .cpdf { background: #100e15; }
+.cpdf[data-theme='dark'] { background: #100e15; }
 
 /* Page = 2px ink border + hard offset shadow (was a soft blur ring stack). */
 .cpdf__page {

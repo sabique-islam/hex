@@ -2,7 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CasualPdf, type CasualPdfApi } from "@hex/pdf";
+import { useEditorAppearance } from "@/components/hex/editor-theme-sync";
 import { HexEditorShell } from "@/components/hex/hex-shell";
+import { Button } from "@/components/ui/button";
+import { applyEditorAppearance } from "@/lib/editor-theme";
 import { mimeForKind } from "@/lib/kinds";
 import { downloadBlob, getFile, putFile } from "@/lib/storage";
 
@@ -15,6 +18,8 @@ function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
 
 export function PdfEditor({ fileId }: { fileId: string }) {
   const apiRef = useRef<CasualPdfApi | null>(null);
+  const appearance = useEditorAppearance();
+  const [invertPages, setInvertPages] = useState(false);
   const latestBytesRef = useRef<ArrayBuffer | null>(null);
   const persistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [src, setSrc] = useState<string | null>(null);
@@ -49,6 +54,10 @@ export function PdfEditor({ fileId }: { fileId: string }) {
       }
     };
   }, [fileId]);
+
+  useEffect(() => {
+    applyEditorAppearance(appearance);
+  }, [appearance]);
 
   const persistBytes = useCallback(
     async (bytes: ArrayBuffer) => {
@@ -134,10 +143,26 @@ export function PdfEditor({ fileId }: { fileId: string }) {
       onNameChange={setName}
       onDownload={() => void handleDownload()}
       onPersist={() => void persistFromApi()}
+      headerActions={
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          className="hidden text-white hover:bg-white/10 sm:inline-flex"
+          aria-pressed={invertPages}
+          aria-label={invertPages ? "Disable page color inversion" : "Invert page colors"}
+          title={invertPages ? "Restore original page colors" : "Invert page colors for dark reading"}
+          onClick={() => setInvertPages((v) => !v)}
+        >
+          {invertPages ? "Original colors" : "Invert colors"}
+        </Button>
+      }
     >
       <CasualPdf
         src={src}
         mode="edit"
+        appearance="dark"
+        invertPages={invertPages}
         apiRef={apiRefProp}
         className="hex-pdf h-full"
         style={{ width: "100%", height: "100%" }}

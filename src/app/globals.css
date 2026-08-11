@@ -309,3 +309,13 @@ html[data-theme="dark"] body {
 .hex-editor .hex-pdf .cpdf__rail {
   border-color: var(--hex-editor-border);
 }
+
+html.dark .hex-editor .hex-pdf,
+html[data-theme="dark"] .hex-editor .hex-pdf {
+  color-scheme: dark;
+}
+
+html.dark .hex-editor .hex-pdf .cpdf,
+html[data-theme="dark"] .hex-editor .hex-pdf .cpdf {
+  --color-accent: #8b9dff;
+}

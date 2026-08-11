@@ -198,7 +198,7 @@ function ViewerHost({ isLoaded, loading, children }: { isLoaded: boolean; loadin
   return <>{everLoaded.current ? children : loading}</>;
 }
 
-export function CasualPdf({ src, mode = 'view', onModeChange, apiRef, onEdited, onDocumentReplaced, onUndo, onRedo, collab, identity, role, className, style }: CasualPdfProps) {
+export function CasualPdf({ src, mode = 'view', onModeChange, apiRef, onEdited, onDocumentReplaced, onUndo, onRedo, collab, identity, role, appearance = 'light', invertPages = false, className, style }: CasualPdfProps) {
   const { engine, isLoading, error } = usePdfiumEngine();
   // Clamp the requested mode to what the role permits (defense-in-depth — the
   // collab server is the real enforcer). A viewer asked to `edit` renders `view`.
@@ -294,7 +294,7 @@ export function CasualPdf({ src, mode = 'view', onModeChange, apiRef, onEdited, 
                       </div>
                     }
                   >
-                    <Viewer documentId={activeDocumentId} mode={effectiveMode} onModeChange={onModeChange} apiRef={apiRef} onEdited={onEdited} onDocumentReplaced={onDocumentReplaced} onUndo={onUndo} onRedo={onRedo} collab={collab} identity={identity} engine={patchedEngine} />
+                    <Viewer documentId={activeDocumentId} mode={effectiveMode} onModeChange={onModeChange} apiRef={apiRef} onEdited={onEdited} onDocumentReplaced={onDocumentReplaced} onUndo={onUndo} onRedo={onRedo} collab={collab} identity={identity} engine={patchedEngine} appearance={appearance} invertPages={invertPages} />
                   </ViewerHost>
                 )
               }

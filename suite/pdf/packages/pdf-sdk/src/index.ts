@@ -7,7 +7,7 @@ export type { IconName } from './ui/icons';
 export { attachCollab } from './collab';
 export type { CollabHandle } from './collab';
 export { roleToMode, allowedModes, clampMode } from './modes';
-export type { Mode, Role, CollabConfig, Identity, CasualPdfProps, CasualPdfApi } from './modes';
+export type { Mode, Role, PdfAppearance, CollabConfig, Identity, CasualPdfProps, CasualPdfApi } from './modes';
 // Certified signing lives behind the `@casualoffice/pdf/sign` subpath so the
 // signing core only loads when a host imports it lazily.
 export type { SignPdfOptions } from './sign';

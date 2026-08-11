@@ -53,7 +53,7 @@ import { useExportCapability } from '@embedpdf/plugin-export/react';
 import { useRenderCapability } from '@embedpdf/plugin-render/react';
 import { IconButton } from './IconButton';
 import { Icon, type IconName } from './icons';
-import type { Mode, CasualPdfApi, OutlineNode, CollabConfig, Identity } from '../modes';
+import type { Mode, CasualPdfApi, OutlineNode, CollabConfig, Identity, PdfAppearance } from '../modes';
 import { useCollab } from '../use-collab';
 import { useComments, type CommentsState } from '../use-comments';
 import { useSigning, type SigningState, type NewRecipient } from '../use-signing';
@@ -2530,6 +2530,8 @@ export function Viewer({
   collab,
   identity,
   engine,
+  appearance = 'light',
+  invertPages = false,
 }: {
   documentId: string;
   mode: Mode;
@@ -2542,6 +2544,8 @@ export function Viewer({
   collab?: CollabConfig;
   identity?: Identity;
   engine?: MergeEngine;
+  appearance?: PdfAppearance;
+  invertPages?: boolean;
 }) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [leftPanel, setLeftPanel] = useState<LeftPanel>(null);
@@ -3550,7 +3554,13 @@ export function Viewer({
       {/* Registers interactive form-field renderers once (consumed by the
           AnnotationLayer's annotationRenderers). */}
       <FormRendererRegistration />
-      <div className="cpdf" id={ROOT_ID} data-tool={activeToolId ?? undefined}>
+      <div
+        className="cpdf"
+        id={ROOT_ID}
+        data-theme={appearance === 'dark' ? 'dark' : undefined}
+        data-invert-pages={invertPages ? 'true' : undefined}
+        data-tool={activeToolId ?? undefined}
+      >
         {peers.length > 0 && <PresenceStack peers={peers} />}
         {suggestions.length > 0 && (
           <SuggestionsPanel suggestions={suggestions} onAccept={acceptSuggestion} onReject={rejectSuggestion} />
@@ -3570,7 +3580,7 @@ export function Viewer({
                   <PagePointerProvider documentId={documentId} pageIndex={pageIndex} className="cpdf__page" style={{ width, height, position: 'relative' }}>
                     {/* EmbedPDF types RenderLayer props as HTMLAttributes (no `alt`),
                         so name the rendered page image via aria-label for WCAG image-alt. */}
-                    <RenderLayer documentId={documentId} pageIndex={pageIndex} aria-label={`Page ${pageIndex + 1}`} />
+                    <RenderLayer documentId={documentId} pageIndex={pageIndex} className="cpdf__render" aria-label={`Page ${pageIndex + 1}`} />
                     <SearchLayer documentId={documentId} pageIndex={pageIndex} />
                     {/* Text selection is needed in View mode (read/copy) and when a
                         text-markup tool is active (highlight/underline/… select text

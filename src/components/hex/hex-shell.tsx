@@ -33,6 +33,7 @@ export function HexEditorShell({
   onNameChange,
   onDownload,
   onPersist,
+  headerActions,
   children,
 }: {
   kind: EditorKind;
@@ -40,6 +41,7 @@ export function HexEditorShell({
   onNameChange: (value: string) => void;
   onDownload: () => void;
   onPersist?: () => void;
+  headerActions?: ReactNode;
   children: ReactNode;
 }) {
   const filenameInputRef = useRef<HTMLInputElement>(null);
@@ -62,6 +64,7 @@ export function HexEditorShell({
           onChange={(e) => onNameChange(e.target.value)}
           onBlur={() => onPersist?.()}
         />
+        {headerActions}
         <Button
           size="sm"
           className="bg-white text-black hover:bg-white/90"

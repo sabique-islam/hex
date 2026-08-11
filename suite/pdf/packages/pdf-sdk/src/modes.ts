@@ -16,6 +16,9 @@ import type { FormFieldInfo, FillValue } from './ai/form';
  */
 export type Mode = 'view' | 'edit' | 'suggest';
 
+/** Chrome + canvas color scheme for the embedded viewer. */
+export type PdfAppearance = 'light' | 'dark';
+
 /** Role granted on a share link / room, enforced server-side by services/collab. */
 export type Role = 'viewer' | 'commenter' | 'editor' | 'signer';
 
@@ -177,6 +180,10 @@ export interface CasualPdfProps {
   onUndo?: () => void;
   /** Symmetric with `onUndo` — called for redo actions from the viewer chrome. */
   onRedo?: () => void;
+  /** Toolbar / bottom-bar / panel chrome theme. Defaults to `light`. */
+  appearance?: PdfAppearance;
+  /** When true, inverts rendered page pixels (dark-mode reading for light PDFs). */
+  invertPages?: boolean;
   className?: string;
   style?: CSSProperties;
 }
