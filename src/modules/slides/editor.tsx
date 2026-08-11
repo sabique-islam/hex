@@ -117,9 +117,9 @@ export function SlidesEditor({ fileId }: { fileId: string }) {
     <div
       key={fileId}
       className="hex-slides h-dvh min-h-0"
-      data-theme={appearance}
     >
       <HexSlidesShell
+        appearance="dark"
         snapshot={snapshot}
         fileName={name}
         onFileNameChange={setName}

@@ -33,6 +33,8 @@ import { UniverSlidesUIPlugin } from "@univerjs/slides-ui";
 
 import { LOCALES } from "./locale";
 import { exportSlidesToPptx } from "./pptx/pptx-export";
+import { registerSlideCanvasSync } from "./shell/slideCanvasSync";
+import { scheduleScrollSlideToCenter } from "./shell/slideViewport";
 
 export interface HexSlidesApi {
   getSnapshot(): ISlideData | null;
@@ -61,7 +63,8 @@ export const HexSlides = forwardRef<HexSlidesApi, HexSlidesProps>(
       const model = instances.getCurrentUnitOfType<SlideDataModel>(
         UniverInstanceType.UNIVER_SLIDE,
       );
-      return model?.getSnapshot() ?? null;
+      if (!model) return null;
+      return model.getSnapshot() ?? null;
     };
 
     const api: HexSlidesApi = {
@@ -124,6 +127,8 @@ export const HexSlides = forwardRef<HexSlidesApi, HexSlidesProps>(
 
       univerRef.current = univer;
 
+      const syncDisposer = registerSlideCanvasSync(univer);
+
       const cs = univer.__getInjector().get(ICommandService);
       const mutationDisposer = cs.onMutationExecutedForCollab(() => {
         onChangeRef.current?.();
@@ -141,25 +146,8 @@ export const HexSlides = forwardRef<HexSlidesApi, HexSlidesProps>(
         onChangeRef.current?.();
       });
 
-      const renderManager = univer.__getInjector().get(IRenderManagerService);
       const recenter = () => {
-        const instances = univer.__getInjector().get(IUniverInstanceService);
-        const unitId = instances
-          .getCurrentUnitOfType(UniverInstanceType.UNIVER_SLIDE)
-          ?.getUnitId();
-        if (!unitId) return;
-        const renderUnit = renderManager.getRenderById(unitId);
-        void import("@univerjs/slides-ui").then((mod) => {
-          try {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const SlideRenderController = (mod as any).SlideRenderController;
-            const ctrl = renderUnit?.with(SlideRenderController);
-            renderUnit?.engine?.resize();
-            ctrl?.scrollToCenter?.();
-          } catch {
-            /* renderUnit not ready yet */
-          }
-        });
+        scheduleScrollSlideToCenter();
       };
 
       const t1 = window.setTimeout(recenter, 80);
@@ -175,6 +163,7 @@ export const HexSlides = forwardRef<HexSlidesApi, HexSlidesProps>(
         window.clearTimeout(t2);
         window.clearTimeout(t3);
         ro.disconnect();
+        syncDisposer();
         mutationDisposer?.dispose?.();
         commandDisposer?.dispose?.();
         if (typeof window !== "undefined") {

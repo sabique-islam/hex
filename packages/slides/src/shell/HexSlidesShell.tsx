@@ -10,12 +10,11 @@ import {
 } from "react";
 import type { Univer } from "@univerjs/core";
 import {
-  ICommandService,
   IUniverInstanceService,
   UniverInstanceType,
 } from "@univerjs/core";
+
 import type { ISlideData, SlideDataModel } from "@univerjs/slides";
-import { IRenderManagerService } from "@univerjs/engine-render";
 
 import { HexSlides, type HexSlidesApi } from "../HexSlides";
 import { dispatchSlideCommand } from "../univer/commands";
@@ -28,6 +27,13 @@ import { StatusBar } from "./StatusBar";
 import { TitleBar } from "./TitleBar";
 import { Toolbar } from "./Toolbar";
 import { useSlideKeyboardShortcuts } from "./useSlideKeyboardShortcuts";
+import {
+  applySlideZoom,
+  scheduleScaleAwareRecenter,
+  scheduleScrollSlideToCenter,
+} from "./slideViewport";
+
+export type SlidesAppearance = "light" | "dark";
 
 function getCurrentSnapshot(fallback: ISlideData): ISlideData {
   const w = window as unknown as { univer?: Univer };
@@ -37,34 +43,8 @@ function getCurrentSnapshot(fallback: ISlideData): ISlideData {
   const model = instances.getCurrentUnitOfType<SlideDataModel>(
     UniverInstanceType.UNIVER_SLIDE,
   );
-  return model?.getSnapshot() ?? fallback;
-}
-
-function getMainScene() {
-  const w = window as unknown as { univer?: Univer };
-  const univer = w.univer;
-  if (!univer) return null;
-  try {
-    const instances = univer.__getInjector().get(IUniverInstanceService);
-    const unitId = instances
-      .getCurrentUnitOfType(UniverInstanceType.UNIVER_SLIDE)
-      ?.getUnitId();
-    if (!unitId) return null;
-    const renderManager = univer.__getInjector().get(IRenderManagerService);
-    return renderManager.getRenderById(unitId)?.scene ?? null;
-  } catch {
-    return null;
-  }
-}
-
-function applyZoom(percent: number) {
-  const scene = getMainScene();
-  if (!scene) return;
-  try {
-    scene.scale(percent / 100, percent / 100);
-  } catch {
-    /* scene disposed */
-  }
+  if (!model) return fallback;
+  return model.getSnapshot() ?? fallback;
 }
 
 export interface HexSlidesShellProps {
@@ -77,6 +57,7 @@ export interface HexSlidesShellProps {
   onReady?: (api: HexSlidesApi) => void;
   brand?: ReactNode;
   saving?: boolean;
+  appearance?: SlidesAppearance;
 }
 
 function HexSlidesShellInner({
@@ -89,10 +70,12 @@ function HexSlidesShellInner({
   onReady,
   brand,
   saving: savingProp = false,
+  appearance = "light",
 }: HexSlidesShellProps) {
   const apiRef = useRef<HexSlidesApi | null>(null);
   const openInputRef = useRef<HTMLInputElement>(null);
   const persistTimerRef = useRef<number | null>(null);
+  const zoomStateRef = useRef<{ priorZoom: number | null }>({ priorZoom: null });
   const [opening, setOpening] = useState(false);
   const [zoom, setZoom] = useState(100);
   const [notesVisible, setNotesVisible] = useState(false);
@@ -134,30 +117,8 @@ function HexSlidesShellInner({
 
   const handleFitToWindow = useCallback(() => {
     setZoom(100);
-    const w = window as unknown as { univer?: Univer };
-    const univer = w.univer;
-    if (!univer) return;
-    try {
-      const instances = univer.__getInjector().get(IUniverInstanceService);
-      const unitId = instances
-        .getCurrentUnitOfType(UniverInstanceType.UNIVER_SLIDE)
-        ?.getUnitId();
-      if (!unitId) return;
-      const renderManager = univer.__getInjector().get(IRenderManagerService);
-      const renderUnit = renderManager.getRenderById(unitId);
-      renderUnit?.engine?.resize();
-      void import("@univerjs/slides-ui").then((mod) => {
-        try {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const SlideRenderController = (mod as any).SlideRenderController;
-          renderUnit?.with(SlideRenderController)?.scrollToCenter?.();
-        } catch {
-          /* controller not ready */
-        }
-      });
-    } catch {
-      /* ignore */
-    }
+    applySlideZoom(100);
+    scheduleScrollSlideToCenter();
   }, []);
 
   const handleInsertShape = useCallback(() => {
@@ -249,9 +210,42 @@ function HexSlidesShellInner({
   }, [snapshot.id]);
 
   useEffect(() => {
-    const t = window.setTimeout(() => applyZoom(zoom), 120);
+    const t = window.setTimeout(() => {
+      applySlideZoom(zoom);
+      if (zoom === 100) scheduleScrollSlideToCenter();
+      else scheduleScaleAwareRecenter();
+    }, 120);
     return () => window.clearTimeout(t);
   }, [zoom, snapshot.id]);
+
+  useEffect(() => {
+    const PANE_FIT_PCT = 85;
+    const handler = (e: Event) => {
+      const open = (e as CustomEvent<{ open: boolean }>).detail?.open;
+      if (open) {
+        if (zoomStateRef.current.priorZoom == null) {
+          zoomStateRef.current.priorZoom = zoom;
+        }
+        const target = Math.min(zoom, PANE_FIT_PCT);
+        applySlideZoom(target);
+        setZoom(target);
+      } else {
+        const restore = zoomStateRef.current.priorZoom ?? zoom;
+        zoomStateRef.current.priorZoom = null;
+        applySlideZoom(restore);
+        setZoom(restore);
+      }
+      scheduleScaleAwareRecenter();
+    };
+    window.addEventListener("cs:format-pane", handler);
+    return () => window.removeEventListener("cs:format-pane", handler);
+  }, [zoom, snapshot.id]);
+
+  useEffect(() => {
+    const handler = () => scheduleScrollSlideToCenter();
+    window.addEventListener("cs:slide-rail", handler);
+    return () => window.removeEventListener("cs:slide-rail", handler);
+  }, [snapshot.id]);
 
   useEffect(() => {
     const handler = (e: Event) => {
@@ -300,7 +294,10 @@ function HexSlidesShellInner({
   const isSaving = saving || savingProp;
 
   return (
-    <div className="hex-slides-shell flex h-full min-h-0 flex-col overflow-hidden bg-[var(--cs-bg,#f8f9fa)]">
+    <div
+      className="hex-slides-shell flex h-full min-h-0 flex-col overflow-hidden bg-[var(--cs-bg,#f8f9fa)]"
+      data-theme={appearance === "dark" ? "dark" : undefined}
+    >
       <input
         ref={openInputRef}
         type="file"

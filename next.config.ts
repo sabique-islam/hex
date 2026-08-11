@@ -53,16 +53,33 @@ const UNIVER_PACKAGES = [
 ] as const;
 
 /** Force one physical copy of each @univerjs package (redi breaks with duplicates). */
+function univerPackageRoot(name: string): string {
+  const entry = require.resolve(`@univerjs/${name}`);
+  return path.resolve(path.dirname(entry), "../..");
+}
+
 function univerWebpackAliases(): Record<string, string> {
   const aliases: Record<string, string> = {};
   for (const name of UNIVER_PACKAGES) {
     try {
-      aliases[`@univerjs/${name}`] = path.dirname(
-        require.resolve(`@univerjs/${name}/package.json`),
-      );
+      const root = univerPackageRoot(name);
+      // Exact import — single ESM bundle copy (fixes redi "already exists" warnings).
+      aliases[`@univerjs/${name}$`] = path.join(root, "lib/es/index.js");
+      // Locale JSON modules live under lib/es/locale/.
+      aliases[`@univerjs/${name}/locale/`] = path.join(root, "lib/es/locale/");
+      // Package CSS lives under lib/*.css at the package root.
+      aliases[`@univerjs/${name}/lib/`] = path.join(root, "lib/");
     } catch {
       /* optional peer — skip if not installed */
     }
+  }
+  // icons uses dist/esm (require.resolve picks a missing dist/cjs path).
+  try {
+    aliases["@univerjs/icons$"] = require.resolve(
+      "@univerjs/icons/dist/esm/index.js",
+    );
+  } catch {
+    /* optional */
   }
   return aliases;
 }

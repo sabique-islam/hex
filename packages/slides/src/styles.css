@@ -49,6 +49,51 @@
   --cs-font: 'Inter', 'Segoe UI', Roboto, Arial, system-ui, -apple-system, sans-serif;
 }
 
+/* ── Dark chrome (Hex) — slide canvas stays light/unmodified ─────────────── */
+.hex-slides-shell[data-theme="dark"] {
+  --cs-bg: #141414;
+  color: #e8e8e8;
+  color-scheme: dark;
+}
+
+.hex-slides-shell[data-theme="dark"] .cs-titlebar,
+.hex-slides-shell[data-theme="dark"] .cs-toolbar,
+.hex-slides-shell[data-theme="dark"] .cs-statusbar,
+.hex-slides-shell[data-theme="dark"] .cs-slide-rail,
+.hex-slides-shell[data-theme="dark"] .cs-format-pane,
+.hex-slides-shell[data-theme="dark"] .cs-notes,
+.hex-slides-shell[data-theme="dark"] .cs-toolbar2__popover,
+.hex-slides-shell[data-theme="dark"] .cs-toolbar__popover,
+.hex-slides-shell[data-theme="dark"] .cs-menu__panel {
+  --cs-surface: #141414;
+  --cs-surface-2: #1c1c1c;
+  --cs-text: #e8e8e8;
+  --cs-text-mute: #a1a1aa;
+  --cs-text-dim: #71717a;
+  --cs-border: #242424;
+  --cs-border-2: #333333;
+  --cs-hover: rgba(255, 255, 255, 0.06);
+  --cs-active: rgba(255, 255, 255, 0.1);
+  --cs-accent-bg: rgba(13, 148, 136, 0.18);
+  --cs-accent-bg-hv: rgba(13, 148, 136, 0.28);
+  --cs-error-bg: rgba(179, 38, 30, 0.15);
+  --cs-warn-bg: rgba(146, 64, 14, 0.15);
+  --cs-success-bg: rgba(4, 120, 87, 0.15);
+  --cs-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --cs-shadow-2: 0 2px 8px rgba(0, 0, 0, 0.45);
+}
+
+/* Slide stage — always light so deck pixels render exactly as authored. */
+.hex-slides-shell .cs-workspace,
+.hex-slides-shell .cs-workspace .univer-mount {
+  color-scheme: light;
+  color: #1f2328;
+  --cs-stage: #f1f3f4;
+  --cs-text: #1f2328;
+  --cs-text-mute: #5f6368;
+  background: var(--cs-stage);
+}
+
 * { box-sizing: border-box; }
 
 html, body, #root {

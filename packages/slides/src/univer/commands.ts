@@ -15,6 +15,7 @@ import type { SlideDataModel } from '@univerjs/slides';
 import { DocSelectionManagerService } from '@univerjs/docs';
 import { IRenderManagerService } from '@univerjs/engine-render';
 import { CanvasView } from '@univerjs/slides-ui';
+import { refreshElementOnCanvas, rebuildPageScene } from '../shell/slideCanvasSync';
 import { printDeck } from '../shell/download-slide';
 import { getSelectedElement, setSelectedElement } from '../shell/selection';
 
@@ -260,6 +261,21 @@ export async function dispatchSlideCommand<T extends Record<string, unknown>>(
   if (id === 'slide.mutation.update-page') {
     return updateSlidePageMutation(
       params as { unitId?: string; pageId?: string; patch?: Record<string, unknown> } | undefined,
+    );
+  }
+  if (id === 'slide.mutation.update-element') {
+    return updateSlideElementMutation(
+      params as {
+        unitId?: string;
+        pageId?: string;
+        elementId?: string;
+        props?: Record<string, unknown>;
+      } | undefined,
+    );
+  }
+  if (id === 'slide.mutation.delete-element') {
+    return deleteSlideElementMutation(
+      params as { unitId?: string; pageId?: string; elementId?: string } | undefined,
     );
   }
   if (id === 'casual-slides.command.print') {
@@ -1092,8 +1108,68 @@ function updateSlidePageMutation(
     model.incrementRev();
     const active = model.getActivePage();
     if (active) model.setActivePage(active);
+    if ('pageBackgroundFill' in patch) {
+      rebuildPageScene(univer, unitId, pageId);
+    }
     return true;
   });
+}
+
+function updateSlideElementMutation(
+  params?: {
+    unitId?: string;
+    pageId?: string;
+    elementId?: string;
+    props?: Record<string, unknown>;
+  },
+): boolean {
+  const unitId = params?.unitId ?? getFocusedSlideUnitId();
+  const pageId = params?.pageId;
+  const elementId = params?.elementId;
+  const props = params?.props;
+  if (!unitId || !pageId || !elementId || !props) return false;
+  const univer = getUniver();
+  if (!univer) return false;
+  try {
+    return univer.__getInjector().get(ICommandService).syncExecuteCommand(
+      'slide.mutation.update-element',
+      { unitId, pageId, elementId, props },
+    );
+  } catch {
+    return withUndo(() => {
+      const instances = univer.__getInjector().get(IUniverInstanceService);
+      const model = instances.getUnit<SlideDataModel>(unitId);
+      if (!model) return false;
+      const page = model.getPage(pageId);
+      if (!page) return false;
+      const existing = page.pageElements[elementId];
+      if (!existing) return false;
+      page.pageElements[elementId] = { ...existing, ...props };
+      model.updatePage(pageId, page);
+      model.incrementRev();
+      refreshElementOnCanvas(univer, unitId, pageId, elementId);
+      return true;
+    });
+  }
+}
+
+function deleteSlideElementMutation(
+  params?: { unitId?: string; pageId?: string; elementId?: string },
+): boolean {
+  const unitId = params?.unitId ?? getFocusedSlideUnitId();
+  const pageId = params?.pageId;
+  const elementId = params?.elementId;
+  if (!unitId || !pageId || !elementId) return false;
+  const univer = getUniver();
+  if (!univer) return false;
+  try {
+    return univer.__getInjector().get(ICommandService).syncExecuteCommand(
+      'slide.mutation.delete-element',
+      { unitId, pageId, elementId },
+    );
+  } catch {
+    return false;
+  }
 }
 
 export function deleteSlide(pageId?: string): boolean {

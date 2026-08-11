@@ -4,6 +4,7 @@ import { ICommandService, IUniverInstanceService, UniverInstanceType } from '@un
 import type { ISlidePage, SlideDataModel } from '@univerjs/slides';
 import { PageType } from '@univerjs/slides';
 import { dispatchSlideCommand } from '../univer/commands';
+import { ensurePageRendered } from './slideCanvasSync';
 import { useTranslation } from '../i18n';
 import { Icon } from './icons';
 import { SlideTile } from './SlideTile';
@@ -224,6 +225,8 @@ export function SlideRail() {
     if (model) {
       const page = model.getPage(id);
       if (page) model.setActivePage(page);
+      const w = window as unknown as { univer?: Univer };
+      if (w.univer) ensurePageRendered(w.univer, model.getUnitId(), id);
     }
     setActiveId(id);
   }, []);
@@ -471,9 +474,17 @@ export function SlideRailProvider() {
   }, []);
 
   useEffect(() => {
-    if (ready) document.body.classList.add('cs-slide-rail-open');
-    else document.body.classList.remove('cs-slide-rail-open');
-    return () => document.body.classList.remove('cs-slide-rail-open');
+    if (ready) {
+      document.body.classList.add("cs-slide-rail-open");
+      window.dispatchEvent(new CustomEvent("cs:slide-rail", { detail: { open: true } }));
+    } else {
+      document.body.classList.remove("cs-slide-rail-open");
+      window.dispatchEvent(new CustomEvent("cs:slide-rail", { detail: { open: false } }));
+    }
+    return () => {
+      document.body.classList.remove("cs-slide-rail-open");
+      window.dispatchEvent(new CustomEvent("cs:slide-rail", { detail: { open: false } }));
+    };
   }, [ready]);
 
   if (!ready) return null;

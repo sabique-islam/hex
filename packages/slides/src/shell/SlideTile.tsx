@@ -30,9 +30,19 @@ function rgbToCss(rgb: string | null | undefined | void, fallback = '#ffffff'): 
   return rgb.trim();
 }
 
+function textFromElement(element: IPageElement): string | null {
+  const rt = element.richText;
+  if (!rt) return null;
+  const flat = rt.text?.trim();
+  if (flat) return rt.text ?? null;
+  const stream = rt.rich?.body?.dataStream?.replace(/\0/g, '').trim();
+  return stream || null;
+}
+
 function renderTextElement(element: IPageElement) {
   const rt = element.richText;
-  if (!rt?.text) return null;
+  const text = textFromElement(element);
+  if (!rt || !text) return null;
   return (
     <div
       key={element.id}
@@ -43,7 +53,10 @@ function renderTextElement(element: IPageElement) {
         width: element.width,
         height: element.height,
         fontSize: rt.fs ? `${rt.fs}px` : '24px',
-        color: rgbToCss(rt.cl?.rgb, '#111827'),
+        color: rgbToCss(
+          rt.cl && "rgb" in rt.cl ? (rt.cl.rgb as string | undefined) : undefined,
+          '#111827',
+        ),
         fontWeight: rt.bl ? 700 : 400,
         fontStyle: rt.it ? 'italic' : 'normal',
         textDecoration: rt.ul ? 'underline' : 'none',
@@ -58,7 +71,7 @@ function renderTextElement(element: IPageElement) {
         overflow: 'visible',
       }}
     >
-      {rt.text}
+      {text}
     </div>
   );
 }
