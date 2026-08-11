@@ -93,11 +93,31 @@ export function applySlideZoom(percent: number) {
   }
 }
 
+let recenterGeneration = 0;
+let pendingRecenterTimers: number[] = [];
+
 function scheduleRecenter(recenter: () => void) {
+  recenterGeneration += 1;
+  const gen = recenterGeneration;
+  for (const id of pendingRecenterTimers) window.clearTimeout(id);
+  pendingRecenterTimers = [];
+
   recenter();
-  window.setTimeout(recenter, 120);
-  window.setTimeout(recenter, 260);
-  window.setTimeout(recenter, 420);
+
+  for (const delay of [120, 260, 420]) {
+    const id = window.setTimeout(() => {
+      if (gen !== recenterGeneration) return;
+      recenter();
+    }, delay);
+    pendingRecenterTimers.push(id);
+  }
+}
+
+/** Cancel pending slide recenter timers (call before Univer dispose). */
+export function cancelScheduledRecenters() {
+  recenterGeneration += 1;
+  for (const id of pendingRecenterTimers) window.clearTimeout(id);
+  pendingRecenterTimers = [];
 }
 
 /** After layout transitions at default zoom (slide rail, resize). */

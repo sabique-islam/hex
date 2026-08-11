@@ -29,9 +29,11 @@ import { Toolbar } from "./Toolbar";
 import { useSlideKeyboardShortcuts } from "./useSlideKeyboardShortcuts";
 import {
   applySlideZoom,
+  cancelScheduledRecenters,
   scheduleScaleAwareRecenter,
   scheduleScrollSlideToCenter,
 } from "./slideViewport";
+import { flushPendingUniverDispose } from "../univer/lifecycle";
 
 export type SlidesAppearance = "light" | "dark";
 
@@ -186,15 +188,24 @@ function HexSlidesShellInner({
         }
         const seedActive = model.getActivePage();
         if (seedActive) {
-          const order = model.getPageOrder() ?? [];
-          const idx = order.indexOf(seedActive.id);
-          if (idx >= 0) setActiveSlideIndex(idx);
+          try {
+            const order = model.getPageOrder?.() ?? [];
+            const idx = order.indexOf(seedActive.id);
+            if (idx >= 0) setActiveSlideIndex(idx);
+          } catch {
+            /* slide unit disposed */
+          }
         }
         const sub = model.activePage$.subscribe((page) => {
           if (disposed || !page) return;
-          const order = model.getPageOrder() ?? [];
-          const idx = order.indexOf(page.id);
-          if (idx >= 0) setActiveSlideIndex(idx);
+          if (!w.univer) return;
+          try {
+            const order = model.getPageOrder?.() ?? [];
+            const idx = order.indexOf(page.id);
+            if (idx >= 0) setActiveSlideIndex(idx);
+          } catch {
+            /* slide unit disposed */
+          }
         });
         unsub = () => sub.unsubscribe();
       } catch {
@@ -287,6 +298,7 @@ function HexSlidesShellInner({
       if (persistTimerRef.current != null) {
         window.clearTimeout(persistTimerRef.current);
       }
+      cancelScheduledRecenters();
     },
     [],
   );
@@ -369,6 +381,14 @@ declare global {
 }
 
 export function HexSlidesShell(props: HexSlidesShellProps) {
+  useEffect(
+    () => () => {
+      cancelScheduledRecenters();
+      flushPendingUniverDispose();
+    },
+    [],
+  );
+
   return (
     <>
       <HexSlidesShellInner {...props} />

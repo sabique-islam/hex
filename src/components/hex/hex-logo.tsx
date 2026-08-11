@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { resetEditorAppearance } from "@/lib/editor-theme";
 
 const GITHUB_URL = "https://github.com/sabique-islam/hex";
 
@@ -59,7 +60,11 @@ export function HexMarkLink({
       )}
       nativeButton={false}
       render={
-        <Link href="/" className="inline-flex items-center gap-2" />
+        <Link
+          href="/"
+          className="inline-flex items-center gap-2"
+          onClick={() => resetEditorAppearance()}
+        />
       }
     >
       <HexLogo size={size} alt="" tone={tone} />

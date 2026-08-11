@@ -14,6 +14,7 @@ import { GetStartedDialog } from "@/components/hex/landing/get-started-dialog";
 import { LandingNav } from "@/components/hex/landing/landing-nav";
 import { cn } from "@/lib/utils";
 import { resetEditorAppearance } from "@/lib/editor-theme";
+import { useLayoutEffect } from "react";
 import {
   ACCEPT_OPEN,
   defaultFilename,
@@ -50,7 +51,7 @@ async function blankBytes(kind: EditorKind): Promise<ArrayBuffer> {
 
 /** Marketing routes always use light chrome — reset editor theme leaks on enter. */
 function LandingThemeSync() {
-  useEffect(() => {
+  useLayoutEffect(() => {
     resetEditorAppearance();
   }, []);
   return null;

@@ -3,7 +3,8 @@ import { Geist_Mono, Newsreader, DM_Sans } from "next/font/google";
 import "./globals.css";
 import "./landing.css";
 import { cn } from "@/lib/utils";
-import { Analytics } from "@vercel/analytics/next"
+import { Analytics } from "@vercel/analytics/next";
+import { RouteChromeSync } from "@/components/hex/route-chrome-sync";
 
 const display = Newsreader({
   subsets: ["latin"],
@@ -63,6 +64,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         suppressHydrationWarning
         className="min-h-full flex flex-col bg-white text-foreground"
       >
+        <RouteChromeSync />
         {children}
         <Analytics />
       </body>

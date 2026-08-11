@@ -96,11 +96,12 @@
 
 * { box-sizing: border-box; }
 
-html, body, #root {
+/* Scoped to the slides shell — never target html/body (leaks into Hex marketing routes). */
+.hex-slides-shell {
   margin: 0;
   padding: 0;
-  height: 100vh;
-  width: 100vw;
+  height: 100%;
+  width: 100%;
   overflow: hidden;
   font-family: var(--cs-font);
   color: var(--cs-text);
@@ -108,11 +109,8 @@ html, body, #root {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   background: var(--cs-bg);
-}
-
-#root {
-  display: grid;
-  grid-template-rows: var(--cs-titlebar-h) var(--cs-toolbar-h) 1fr auto var(--cs-statusbar-h);
+  display: flex;
+  flex-direction: column;
   min-height: 0;
 }
 

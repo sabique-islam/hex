@@ -154,6 +154,23 @@
   }
 }
 
+html.light body {
+  background-color: #ffffff;
+  color: #09090b;
+}
+
+/* Undo slides editor global leaks (overflow:hidden on body) after client nav. */
+body.hex-marketing-route {
+  overflow: auto;
+  height: auto;
+  min-height: 100%;
+  width: auto;
+  font-size: inherit;
+  font-family: var(--font-sans);
+  background-color: #ffffff;
+  color: #09090b;
+}
+
 .hex-logo {
   background: transparent !important;
 }

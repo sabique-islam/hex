@@ -34,7 +34,15 @@ import { UniverSlidesUIPlugin } from "@univerjs/slides-ui";
 import { LOCALES } from "./locale";
 import { exportSlidesToPptx } from "./pptx/pptx-export";
 import { registerSlideCanvasSync } from "./shell/slideCanvasSync";
-import { scheduleScrollSlideToCenter } from "./shell/slideViewport";
+import {
+  cancelScheduledRecenters,
+  scheduleScrollSlideToCenter,
+} from "./shell/slideViewport";
+import {
+  clearWindowUniver,
+  flushPendingUniverDispose,
+  markUniverForDispose,
+} from "./univer/lifecycle";
 
 export interface HexSlidesApi {
   getSnapshot(): ISlideData | null;
@@ -163,23 +171,13 @@ export const HexSlides = forwardRef<HexSlidesApi, HexSlidesProps>(
         window.clearTimeout(t2);
         window.clearTimeout(t3);
         ro.disconnect();
+        cancelScheduledRecenters();
         syncDisposer();
         mutationDisposer?.dispose?.();
         commandDisposer?.dispose?.();
-        if (typeof window !== "undefined") {
-          const w = window as unknown as { univer?: Univer };
-          if (w.univer === univer) w.univer = undefined;
-        }
         univerRef.current = null;
-        // Defer dispose so React can finish the current render/unmount cycle.
-        const toDispose = univer;
-        window.setTimeout(() => {
-          try {
-            toDispose.dispose();
-          } catch {
-            /* already disposed */
-          }
-        }, 0);
+        clearWindowUniver(univer);
+        markUniverForDispose(univer);
       };
       // Parent remounts via key={snapshot.id}.
       // eslint-disable-next-line react-hooks/exhaustive-deps

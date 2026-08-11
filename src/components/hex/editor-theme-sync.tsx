@@ -1,5 +1,6 @@
 "use client";
 
+import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
   applyEditorAppearance,
@@ -45,11 +46,20 @@ export function useEditorAppearance(): EditorAppearance {
 
 /** Applies selected theme to the Hex shell; restores light when leaving editors. */
 export function EditorThemeSync() {
+  const pathname = usePathname();
+  const onEditorRoute = pathname.startsWith("/editor");
+
   useEffect(() => {
+    if (!onEditorRoute) return;
     return subscribeAppearance((next) => {
       applyEditorAppearance(next);
     });
-  }, []);
+  }, [onEditorRoute]);
+
+  useEffect(() => {
+    if (onEditorRoute) return;
+    resetEditorAppearance();
+  }, [onEditorRoute]);
 
   useEffect(() => {
     return () => {

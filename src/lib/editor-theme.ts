@@ -23,8 +23,13 @@ export function resolveEditorAppearance(): EditorAppearance {
     : "light";
 }
 
+const EDITOR_BODY_CLASSES = ["cs-slide-rail-open", "cs-format-pane-open"] as const;
+const MARKETING_BODY_CLASS = "hex-marketing-route";
+
 export function applyEditorAppearance(appearance: EditorAppearance) {
   if (typeof document === "undefined") return;
+
+  document.body.classList.remove(MARKETING_BODY_CLASS);
 
   const root = document.documentElement;
   if (root.getAttribute("data-theme") !== appearance) {
@@ -42,8 +47,6 @@ export function applyEditorAppearance(appearance: EditorAppearance) {
   }
 }
 
-const EDITOR_BODY_CLASSES = ["cs-slide-rail-open", "cs-format-pane-open"] as const;
-
 /** Restore marketing/light chrome after leaving an editor. */
 export function resetEditorAppearance() {
   if (typeof document === "undefined") return;
@@ -57,4 +60,5 @@ export function resetEditorAppearance() {
   for (const cls of EDITOR_BODY_CLASSES) {
     document.body.classList.remove(cls);
   }
+  document.body.classList.add(MARKETING_BODY_CLASS);
 }

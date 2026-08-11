@@ -29,10 +29,15 @@ function getLiveUniver(): Univer | null {
   return (window as unknown as { univer?: Univer }).univer ?? null;
 }
 
+function isLiveUniver(univer: Univer): boolean {
+  return getLiveUniver() === univer;
+}
+
 function getSlideRenderController(
   univer: Univer,
   unitId: string,
 ): SlideRenderControllerLike | null {
+  if (!isLiveUniver(univer)) return null;
   try {
     const canvasView = univer.__getInjector().get(CanvasView);
     // CanvasView resolves SlideRenderController internally; not exported in 0.25.
@@ -55,8 +60,6 @@ function normalizePageForCanvas(page: ISlidePage): ISlidePage {
     const stream = rt.rich?.body?.dataStream?.replace(/\0/g, "").trim() ?? "";
     const flat = rt.text?.trim() ?? "";
 
-    // RichTextAdaptor prefers flat `text` when non-null — an empty string
-    // blocks the rich document path and the canvas stays blank.
     if (stream && !flat) {
       const clone = structuredClone(el);
       if (clone.richText && "text" in clone.richText) {
@@ -91,23 +94,24 @@ export function refreshElementOnCanvas(
   pageId: string,
   elementId: string,
 ) {
-  const instances = univer.__getInjector().get(IUniverInstanceService);
-  const model = instances.getUnit<SlideDataModel>(unitId);
-  if (!model) return;
-  const page = model.getPage(pageId);
-  const raw = page?.pageElements?.[elementId];
-  if (!raw) return;
-  const el = normalizePageForCanvas({
-    ...page,
-    pageElements: { [elementId]: raw },
-  }).pageElements[elementId];
-  if (!el) return;
+  if (!isLiveUniver(univer)) return;
   try {
+    const instances = univer.__getInjector().get(IUniverInstanceService);
+    const model = instances.getUnit<SlideDataModel>(unitId);
+    if (!model) return;
+    const page = model.getPage(pageId);
+    const raw = page?.pageElements?.[elementId];
+    if (!raw) return;
+    const el = normalizePageForCanvas({
+      ...page,
+      pageElements: { [elementId]: raw },
+    }).pageElements[elementId];
+    if (!el) return;
     const canvasView = univer.__getInjector().get(CanvasView);
     canvasView.removeObjectById(elementId, pageId, unitId);
     canvasView.createObjectToPage(el, pageId, unitId);
   } catch {
-    /* canvas refresh best-effort — avoid full scene rebuild during edit */
+    /* canvas refresh best-effort */
   }
 }
 
@@ -116,23 +120,28 @@ export function rebuildPageScene(
   unitId: string,
   pageId: string,
 ) {
-  const instances = univer.__getInjector().get(IUniverInstanceService);
-  const model = instances.getUnit<SlideDataModel>(unitId);
-  if (!model) return;
-  const page = model.getPage(pageId);
-  if (!page) return;
-  const ctrl = getSlideRenderController(univer, unitId);
-  if (!ctrl?.createPageScene) return;
-  const slide = ctrl._currentRender?.()?.mainComponent;
-  if (slide?.hasPage?.(pageId) && slide.removeSubScene) {
-    slide.removeSubScene(pageId);
+  if (!isLiveUniver(univer)) return;
+  try {
+    const instances = univer.__getInjector().get(IUniverInstanceService);
+    const model = instances.getUnit<SlideDataModel>(unitId);
+    if (!model) return;
+    const page = model.getPage(pageId);
+    if (!page) return;
+    const ctrl = getSlideRenderController(univer, unitId);
+    if (!ctrl?.createPageScene) return;
+    const slide = ctrl._currentRender?.()?.mainComponent;
+    if (slide?.hasPage?.(pageId) && slide.removeSubScene) {
+      slide.removeSubScene(pageId);
+    }
+    ctrl.createPageScene(pageId, normalizePageForCanvas(page));
+    const active = model.getActivePage();
+    if (active && active.id === pageId && slide?.changePage) {
+      slide.changePage(pageId);
+    }
+    normalizedPages.add(`${unitId}:${pageId}`);
+  } catch {
+    /* unit disposed mid-rebuild */
   }
-  ctrl.createPageScene(pageId, normalizePageForCanvas(page));
-  const active = model.getActivePage();
-  if (active && active.id === pageId && slide?.changePage) {
-    slide.changePage(pageId);
-  }
-  normalizedPages.add(`${unitId}:${pageId}`);
 }
 
 /** Rebuild a page once when first opened — fixes PPTX import canvas gaps. */
@@ -141,26 +150,33 @@ export function ensurePageRendered(
   unitId: string,
   pageId: string,
 ) {
+  if (!isLiveUniver(univer)) return;
   const key = `${unitId}:${pageId}`;
   if (normalizedPages.has(key)) return;
   rebuildPageScene(univer, unitId, pageId);
 }
 
-function syncInitialActivePage(univer: Univer) {
-  window.setTimeout(() => {
-    const instances = univer.__getInjector().get(IUniverInstanceService);
-    const model = instances.getCurrentUnitOfType<SlideDataModel>(
-      UniverInstanceType.UNIVER_SLIDE,
-    );
-    if (!model) return;
-    const active = model.getActivePage();
-    if (!active) return;
-    ensurePageRendered(univer, model.getUnitId(), active.id);
+function syncInitialActivePage(univer: Univer): number {
+  return window.setTimeout(() => {
+    if (!isLiveUniver(univer)) return;
+    try {
+      const instances = univer.__getInjector().get(IUniverInstanceService);
+      const model = instances.getCurrentUnitOfType<SlideDataModel>(
+        UniverInstanceType.UNIVER_SLIDE,
+      );
+      if (!model) return;
+      const active = model.getActivePage();
+      if (!active) return;
+      ensurePageRendered(univer, model.getUnitId(), active.id);
+    } catch {
+      /* disposed */
+    }
   }, 400);
 }
 
 export function registerSlideCanvasSync(univer: Univer): () => void {
   const cs = univer.__getInjector().get(ICommandService);
+  let initialSyncTimer: number | null = null;
 
   if (!registeredCommandServices.has(cs)) {
     registeredCommandServices.add(cs);
@@ -222,11 +238,6 @@ export function registerSlideCanvasSync(univer: Univer): () => void {
     });
   }
 
-  // Background / page-level patches only — do NOT hook
-  // slide.operation.update-element here; FormatPane already mutates the live
-  // BaseObject in place for transforms, and text edits use the inline doc
-  // editor (refreshing the canvas mid-edit breaks rendering + triggers redi
-  // Engine warnings).
   const cmdDisposer = cs.onCommandExecuted((info) => {
     if (info.id !== "slide.mutation.update-page") return;
     const p = info.params as
@@ -239,9 +250,10 @@ export function registerSlideCanvasSync(univer: Univer): () => void {
   });
 
   normalizedPages.clear();
-  syncInitialActivePage(univer);
+  initialSyncTimer = syncInitialActivePage(univer);
 
   return () => {
+    if (initialSyncTimer != null) window.clearTimeout(initialSyncTimer);
     cmdDisposer?.dispose?.();
     normalizedPages.clear();
   };
