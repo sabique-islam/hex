@@ -11,6 +11,7 @@ import { PRODUCT_ITEMS } from "@/lib/products";
 import { SplitPrimaryButton } from "@/components/hex/landing/split-cta";
 
 const NAV = [
+  { label: "Files", href: "/dashboard" },
   { label: "Why Hex", href: "/why-hex" },
   { label: "About", href: "/about" },
   { label: "Templates", href: "/templates" },

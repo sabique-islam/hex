@@ -13,6 +13,9 @@ export interface HexFileRecord {
   createdAt: number;
 }
 
+/** Metadata only — used by the files dashboard so listing skips byte payloads. */
+export type HexFileMeta = Omit<HexFileRecord, "bytes">;
+
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
@@ -80,13 +83,13 @@ export async function getFile(id: string): Promise<HexFileRecord | null> {
   return result ?? null;
 }
 
-export async function listRecent(limit = 12): Promise<HexFileRecord[]> {
+export async function listRecent(limit = 12): Promise<HexFileMeta[]> {
   const db = await openDb();
   const tx = db.transaction(STORE, "readonly");
   const store = tx.objectStore(STORE);
   const index = store.index("updatedAt");
   const req = index.openCursor(null, "prev");
-  const out: HexFileRecord[] = [];
+  const out: HexFileMeta[] = [];
   await new Promise<void>((resolve, reject) => {
     req.onsuccess = () => {
       const cursor = req.result;
@@ -94,7 +97,9 @@ export async function listRecent(limit = 12): Promise<HexFileRecord[]> {
         resolve();
         return;
       }
-      out.push(cursor.value as HexFileRecord);
+      const { id, kind, name, updatedAt, createdAt } =
+        cursor.value as HexFileRecord;
+      out.push({ id, kind, name, updatedAt, createdAt });
       cursor.continue();
     };
     req.onerror = () => reject(req.error ?? new Error("list failed"));
@@ -102,6 +107,29 @@ export async function listRecent(limit = 12): Promise<HexFileRecord[]> {
   await txDone(tx);
   db.close();
   return out;
+}
+
+export async function renameFile(
+  id: string,
+  name: string,
+): Promise<HexFileMeta | null> {
+  const existing = await getFile(id);
+  if (!existing) return null;
+  const nextName = name.trim() || existing.name;
+  const updated = await putFile({
+    id: existing.id,
+    kind: existing.kind,
+    name: nextName,
+    bytes: existing.bytes,
+    createdAt: existing.createdAt,
+  });
+  return {
+    id: updated.id,
+    kind: updated.kind,
+    name: updated.name,
+    updatedAt: updated.updatedAt,
+    createdAt: updated.createdAt,
+  };
 }
 
 export async function deleteFile(id: string): Promise<void> {

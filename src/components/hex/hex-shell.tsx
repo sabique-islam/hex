@@ -49,7 +49,12 @@ export function HexEditorShell({
   return (
     <div className="hex-editor flex h-dvh min-h-0 flex-col bg-background">
       <header className="hex-editor-bar flex h-12 shrink-0 items-center gap-3 px-3 sm:px-4">
-        <HexMarkLink size={20} tone="light" className="shrink-0" />
+        <HexMarkLink
+          size={20}
+          tone="light"
+          href="/dashboard"
+          className="shrink-0"
+        />
         <Badge
           variant="secondary"
           className="hidden border-white/10 bg-white/10 text-white sm:inline-flex"

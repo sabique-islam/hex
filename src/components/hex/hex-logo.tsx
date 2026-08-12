@@ -45,10 +45,12 @@ export function HexMarkLink({
   size = 24,
   className,
   tone = "dark",
+  href = "/",
 }: {
   size?: number;
   className?: string;
   tone?: "brand" | "dark" | "light";
+  href?: string;
 }) {
   return (
     <Button
@@ -61,7 +63,7 @@ export function HexMarkLink({
       nativeButton={false}
       render={
         <Link
-          href="/"
+          href={href}
           className="inline-flex items-center gap-2"
           onClick={() => resetEditorAppearance()}
         />
